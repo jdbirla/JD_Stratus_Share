@@ -1,6 +1,7 @@
 # JD_Stratus_Share
 
 ### Schema
+```sql
 SELECT 
     fk.name AS ForeignKey,
     tp.name AS ParentTable,
@@ -14,3 +15,4 @@ JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
 JOIN sys.columns cp ON fkc.parent_column_id = cp.column_id AND fkc.parent_object_id = cp.object_id
 JOIN sys.columns cr ON fkc.referenced_column_id = cr.column_id AND fkc.referenced_object_id = cr.object_id
 ORDER BY ParentTable, ReferencedTable;
+```
