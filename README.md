@@ -155,3 +155,184 @@ Transaction transaction = Transaction.builder()
 ✔ **Outputs valid Java code** that can be copy-pasted.  
 
 Would you like any enhancements? 🚀
+----
+
+### Vault Secret 
+
+To securely inject a key-value (K/V) secret from HashiCorp Vault into your Kubernetes deployment using the Vault Agent Injector and subsequently create a Kubernetes Secret from this data, follow the steps outlined below:
+
+**1. Store Your Application YAML in Vault:**
+
+First, ensure that your application's YAML configuration is stored as a secret in Vault. For instance, if your secret's key is `config.secret` and it contains your entire application YAML, you can store it using the following command:
+
+```bash
+vault kv put secret/config config.secret=@app-config.yaml
+```
+
+
+Here, `app-config.yaml` is your application's configuration file.
+
+**2. Create a Vault Policy:**
+
+Define a Vault policy that grants read access to the secret. Save the policy in a file named `app-policy.hcl`:
+
+```hcl
+path "secret/data/config" {
+  capabilities = ["read"]
+}
+```
+
+
+Apply the policy in Vault:
+
+```bash
+vault policy write app-policy app-policy.hcl
+```
+
+
+**3. Enable Kubernetes Authentication in Vault:**
+
+Configure Vault to authenticate using Kubernetes:
+
+```bash
+vault auth enable kubernetes
+```
+
+
+Retrieve the Kubernetes API server URL:
+
+```bash
+KUBE_API_SERVER=$(kubectl config view --raw --minify --flatten -o json | jq -r '.clusters[0].cluster.server')
+```
+
+
+Obtain the JWT token from the Kubernetes service account:
+
+```bash
+SERVICE_ACCOUNT_NAME=vault-auth
+SECRET_NAME=$(kubectl get sa $SERVICE_ACCOUNT_NAME -o jsonpath="{.secrets[0].name}")
+SA_JWT_TOKEN=$(kubectl get secret $SECRET_NAME -o jsonpath="{.data.token}" | base64 --decode)
+```
+
+
+Retrieve the Kubernetes CA certificate:
+
+```bash
+KUBE_CA_CERT=$(kubectl get secret $SECRET_NAME -o jsonpath="{.data['ca\.crt']}" | base64 --decode)
+```
+
+
+Configure Vault with the Kubernetes authentication details:
+
+```bash
+vault write auth/kubernetes/config \
+    token_reviewer_jwt="$SA_JWT_TOKEN" \
+    kubernetes_host="$KUBE_API_SERVER" \
+    kubernetes_ca_cert="$KUBE_CA_CERT"
+```
+
+
+**4. Create a Vault Role:**
+
+Bind the Kubernetes service account to the Vault policy:
+
+```bash
+vault write auth/kubernetes/role/app-role \
+    bound_service_account_names=vault-auth \
+    bound_service_account_namespaces=default \
+    policies=app-policy \
+    ttl=24h
+```
+
+
+**5. Deploy the Vault Agent Injector:**
+
+Ensure that the Vault Agent Injector is deployed in your Kubernetes cluster. This can be done using the Vault Helm chart:
+
+```bash
+helm install vault hashicorp/vault --set "server.dev.enabled=true"
+```
+
+
+**6. Annotate Your Kubernetes Deployment:**
+
+Modify your Kubernetes deployment to include annotations that instruct the Vault Agent Injector to retrieve the secret and create a Kubernetes Secret. Here's an example of how to set this up:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  annotations:
+    vault.hashicorp.com/agent-inject: 'true'
+    vault.hashicorp.com/role: 'app-role'
+    vault.hashicorp.com/agent-inject-secret-config: 'secret/data/config'
+    vault.hashicorp.com/agent-inject-template-config: |
+      {{- with secret "secret/data/config" -}}
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: app-config-secret
+      type: Opaque
+      data:
+        config.yaml: {{ .Data.data.config.secret | base64Encode }}
+      {{- end -}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      serviceAccountName: vault-auth
+      containers:
+        - name: my-app-container
+          image: my-app-image
+          volumeMounts:
+            - name: app-config
+              mountPath: /etc/app-config
+              readOnly: true
+      volumes:
+        - name: app-config
+          secret:
+            secretName: app-config-secret
+```
+
+
+**Explanation:**
+
+- `vault.hashicorp.com/agent-inject: 'true'`: Enables the Vault Agent Injector for this pod.
+
+- `vault.hashicorp.com/role: 'app-role'`: Specifies the Vault role to use for authentication.
+
+- `vault.hashicorp.com/agent-inject-secret-config: 'secret/data/config'`: Indicates the path to the Vault secret.
+
+- `vault.hashicorp.com/agent-inject-template-config`: Utilizes a Vault Agent template to render the secret as a Kubernetes Secret manifest. The `config.secret` is base64 encoded to meet Kubernetes Secret requirements.
+
+When the pod is deployed, the Vault Agent Injector will:
+
+1. Authenticate to Vault using the specified role.
+
+2. Retrieve the secret from Vault.
+
+3. Render the secret into a Kubernetes Secret manifest using the provided template.
+
+4. Apply the Kubernetes Secret to the cluster.
+
+5. Mount the newly created Kubernetes Secret as a volume in the application container.
+
+**7. Deploy Your Application:**
+
+Apply your deployment configuration:
+
+```bash
+kubectl apply -f my-app-deployment.yaml
+```
+
+
+This setup ensures that your application's YAML configuration stored in Vault is securely injected into your Kubernetes deployment and made available as a Kubernetes Secret.
+
+For more detailed information, refer to the [Vault Agent Injector documentation](https://developer.hashicorp.com/vault/docs/platform/k8s/injector). 
