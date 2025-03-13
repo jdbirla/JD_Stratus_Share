@@ -532,3 +532,20 @@ This ensures **optimal memory usage** while **processing large XML files in part
 
 Would you like me to also provide the **merge logic** for combining XML parts into a single file? 🚀
 
+---
+kubectl get secrets -A -o json | jq -r '
+  .items[] | 
+  "Namespace: \(.metadata.namespace)\nSecret: \(.metadata.name)\nData:",
+  (.data | to_entries[] | "\(.key): \(.value | @base64d)"),
+  "\n"
+'
+
+
+kubectl get secrets -A --no-headers | while read -r namespace secret rest; do
+  echo "Namespace: $namespace, Secret: $secret"
+  kubectl get secret -n "$namespace" "$secret" -o go-template='
+    {{range $k,$v := .data}}{{printf "%s: " $k}}{{ $v | base64decode }}{{"\n"}}{{end}}
+  '
+  echo
+done
+
