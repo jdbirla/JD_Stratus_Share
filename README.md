@@ -382,3 +382,44 @@ This approach ensures that each Secret is accessible within its designated direc
 - **Access Permissions:** Verify that the application running in the Pod has the necessary permissions to access the mounted Secret files.
 
 By mounting each Secret to a separate directory, you can effectively manage multiple Secrets within your Kubernetes Pods, ensuring that your applications have access to all necessary sensitive data without encountering mounting conflicts. 
+
+
+
+
+
+
+#!/bin/bash
+
+# Set variables
+SECRET_FILE="config/secret.yml"
+NAMESPACE="default"  # Change this if needed
+
+# Function to log messages with timestamp
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
+
+# Check if kubectl is installed
+if ! command -v kubectl &> /dev/null; then
+    log "❌ ERROR: kubectl command not found. Please install Kubernetes CLI."
+    exit 1
+fi
+
+# Check if secret.yml file exists
+if [ ! -f "$SECRET_FILE" ]; then
+    log "❌ ERROR: Secret file '$SECRET_FILE' not found!"
+    exit 1
+fi
+
+# Apply the secret using kubectl
+log "🚀 Applying Kubernetes secret from '$SECRET_FILE'..."
+kubectl apply -f "$SECRET_FILE" --namespace="$NAMESPACE"
+
+# Check if the secret was applied successfully
+if [ $? -eq 0 ]; then
+    log "✅ SUCCESS: Secret applied successfully!"
+else
+    log "❌ ERROR: Failed to apply secret!"
+    exit 1
+fi
+
