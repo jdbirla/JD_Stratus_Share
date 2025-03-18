@@ -386,7 +386,7 @@ By mounting each Secret to a separate directory, you can effectively manage mult
 
 
 
-
+```sh
 
 #!/bin/bash
 
@@ -422,4 +422,4 @@ else
     log "❌ ERROR: Failed to apply secret!"
     exit 1
 fi
-
+```
