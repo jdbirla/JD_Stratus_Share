@@ -423,3 +423,25 @@ else
     exit 1
 fi
 ```
+
+```python
+from kubernetes import client, config
+
+def apply_secret():
+    config.load_incluster_config()  # Load in-cluster Kubernetes config
+    api_instance = client.CoreV1Api()
+
+    with open("/opt/asd/asd/config/secret.yml", "r") as f:
+        secret_yaml = yaml.safe_load(f)
+
+    api_instance.create_namespaced_secret(
+        namespace="default",
+        body=secret_yaml
+    )
+
+apply_secret_task = PythonOperator(
+    task_id="apply_secret_python",
+    python_callable=apply_secret,
+)
+
+```
