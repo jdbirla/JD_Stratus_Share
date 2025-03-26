@@ -499,11 +499,11 @@ Best regards,
 [Your Contact Information]
 
 -----
-```
+```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: apply-k8s-secret
+  name: my-app
   namespace: my-namespace
   annotations:
     vault.hashicorp.com/agent-inject: "true"
@@ -516,36 +516,32 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: apply-k8s-secret
+      app: my-app
   template:
     metadata:
       labels:
-        app: apply-k8s-secret
+        app: my-app
     spec:
       serviceAccountName: vault-sa
-      containers:
-        - name: kubectl-applier
+      initContainers:
+        - name: apply-secrets
           image: bitnami/kubectl:latest
           command:
             - "/bin/sh"
             - "-c"
             - |
-              while true; do
-                echo "Applying Kubernetes Secret from Vault..."
-                kubectl apply -f /vault/secrets/secret.yaml
-                echo "Secret applied successfully! Sleeping for 5 minutes..."
-                sleep 300  # Reapply every 5 minutes
-              done
+              echo "Applying secrets..."
+              kubectl apply -f /vault/secrets/secret.yaml
+          volumeMounts:
+            - name: vault-secret
+              mountPath: /vault/secrets
+      containers:
+        - name: my-app
+          image: my-app-image:latest
           volumeMounts:
             - name: vault-secret
               mountPath: /vault/secrets
       volumes:
         - name: vault-secret
           emptyDir: {}
-
-```
-
----
-
-This version ensures clarity, professionalism, and politeness while maintaining the urgency of the matter. Let me know if you’d like any further refinements.
 ```
