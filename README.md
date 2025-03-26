@@ -496,7 +496,54 @@ Looking forward to your response.
 Best regards,  
 [Your Name]  
 [Your Employee ID]  
-[Your Contact Information]  
+[Your Contact Information]
+
+-----
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apply-k8s-secret
+  namespace: my-namespace
+  annotations:
+    vault.hashicorp.com/agent-inject: "true"
+    vault.hashicorp.com/agent-inject-secret-secret.yaml: "secret/k8s-secrets"
+    vault.hashicorp.com/agent-inject-template-secret.yaml: |
+      {{- with secret "secret/k8s-secrets" -}}
+      {{ .Data.data.secret.yaml }}
+      {{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apply-k8s-secret
+  template:
+    metadata:
+      labels:
+        app: apply-k8s-secret
+    spec:
+      serviceAccountName: vault-sa
+      containers:
+        - name: kubectl-applier
+          image: bitnami/kubectl:latest
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              while true; do
+                echo "Applying Kubernetes Secret from Vault..."
+                kubectl apply -f /vault/secrets/secret.yaml
+                echo "Secret applied successfully! Sleeping for 5 minutes..."
+                sleep 300  # Reapply every 5 minutes
+              done
+          volumeMounts:
+            - name: vault-secret
+              mountPath: /vault/secrets
+      volumes:
+        - name: vault-secret
+          emptyDir: {}
+
+```
 
 ---
 
