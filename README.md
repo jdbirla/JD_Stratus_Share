@@ -545,3 +545,113 @@ spec:
         - name: vault-secret
           emptyDir: {}
 ```
+---
+
+### Safly loggin configuration in console
+
+Sure! Here's a **complete example** of a `Spring Boot application.yml` file along with the safe key configuration and nested properties, followed by the final Java class to log only **non-sensitive keys** at startup.
+
+
+
+- ✅ `application.yml` (Complete Example)
+
+```yaml
+server:
+  port: 8080
+
+smarsh:
+  dig:
+    API:
+      host: "api.smarsh.com"
+      user: "rbds"
+      pass: "superSecret"
+
+myapp:
+  service:
+    endpoint: "https://internal.service.com"
+    api-key: "should-not-log"
+    region: "us-east-1"
+
+db:
+  username: "app_user"
+  password: "hidden_secret"
+
+logging:
+  safe-keys:
+    - smarsh.dig.API.host
+    - smarsh.dig.API.user
+    - myapp.service.endpoint
+    - myapp.service.region
+    - db.username
+```
+
+
+
+- ✅ Java Component to Log Only Safe Keys
+
+```java
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+@Slf4j
+@Component
+public class SafePropertyLogger {
+
+    private final Environment environment;
+    private final List<String> safeKeys;
+
+    public SafePropertyLogger(Environment environment,
+                              @Value("${logging.safe-keys}") List<String> safeKeys) {
+        this.environment = environment;
+        this.safeKeys = safeKeys;
+    }
+
+    @PostConstruct
+    public void logSafeProperties() {
+        log.info("----- Safe Application Properties -----");
+        for (String key : safeKeys) {
+            String value = environment.getProperty(key);
+            if (value != null) {
+                log.info("{} = {}", key, value);
+            } else {
+                log.warn("{} is not set or not found", key);
+            }
+        }
+        log.info("----------------------------------------");
+    }
+}
+```
+
+
+
+- ✅ Output (Logged at Startup)
+
+```
+----- Safe Application Properties -----
+smarsh.dig.API.host = api.smarsh.com
+smarsh.dig.API.user = rbds
+myapp.service.endpoint = https://internal.service.com
+myapp.service.region = us-east-1
+db.username = app_user
+----------------------------------------
+```
+
+
+
+- 🔒 Sensitive values like `smarsh.dig.API.pass`, `myapp.service.api-key`, and `db.password` are **not logged**, even though they exist.
+
+
+
+- 🧠 This Solution Is:
+- **Generic**: You just maintain a list of safe keys in `application.yml`.
+- **Secure**: Nothing sensitive is logged unless explicitly allowed.
+- **Simple**: No need to manage nested object bindings or reflection.
+
+Would you like to expand this to log all safe keys from a **given prefix** (e.g., everything under `smarsh.dig.API`) except sensitive keywords?
+
+---
