@@ -814,3 +814,29 @@ done
 echo "✅ Done downloading top 100 files to ${DEST_DIR}"
 
 ```
+### donwload files from container
+```bash
+#!/bin/bash
+
+# Name or ID of the container
+CONTAINER_NAME="your-container-name-or-id"
+
+# Source path inside the container
+CONTAINER_PATH="/tmp"
+
+# Destination on your local machine (current directory)
+DEST_PATH="."
+
+# List files inside the container's /tmp directory
+echo "Listing files in ${CONTAINER_NAME}:${CONTAINER_PATH}..."
+FILES=$(docker exec "${CONTAINER_NAME}" bash -c "ls ${CONTAINER_PATH}")
+
+# Loop and copy each file to local destination
+for FILE in $FILES; do
+  echo "Copying $FILE to ${DEST_PATH}..."
+  docker cp "${CONTAINER_NAME}:${CONTAINER_PATH}/${FILE}" "${DEST_PATH}/"
+done
+
+echo "✅ Done copying files from container to local directory."
+
+```
