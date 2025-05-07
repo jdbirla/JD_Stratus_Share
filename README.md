@@ -789,3 +789,28 @@ This uses `aws s3api` to sort by `LastModified` and downloads the most recent 10
 
 
 Would you like the same script in Python or Bash as a standalone file?
+
+### bashc script for 100 s3 download
+```bash
+#!/bin/bash
+
+# Configuration
+BUCKET_NAME="your-bucket-name"
+S3_PREFIX="path/" # Change to folder path if needed, or leave empty
+DEST_DIR="/tmp"
+
+# Download Top 100 Alphabetically Sorted Files
+echo "Fetching top 100 files from s3://${BUCKET_NAME}/${S3_PREFIX}..."
+
+aws s3 ls "s3://${BUCKET_NAME}/${S3_PREFIX}" --recursive | \
+  sort | \
+  head -n 100 | \
+  awk '{print $4}' | \
+  while read file; do
+    echo "Downloading: $file"
+    aws s3 cp "s3://${BUCKET_NAME}/${file}" "${DEST_DIR}/"
+done
+
+echo "✅ Done downloading top 100 files to ${DEST_DIR}"
+
+```
