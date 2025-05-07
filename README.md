@@ -655,3 +655,137 @@ db.username = app_user
 Would you like to expand this to log all safe keys from a **given prefix** (e.g., everything under `smarsh.dig.API`) except sensitive keywords?
 
 ---
+## S3 Bucket operations
+If you're dealing with **a large number of files in an S3 bucket** and tools like **Cyberduck are too slow or crash**, you have a few better options to **search or filter files by name** (like using `LIKE` operations or prefix matching):
+
+
+
+### ✅ Recommended Options to Search S3 Files
+
+#### **1. Use AWS CLI with Wildcard or Prefix Matching**
+
+The AWS CLI is highly efficient and supports basic filtering.
+
+```bash
+aws s3 ls s3://your-bucket-name/path/to/files/ --recursive | grep 'your_search_term'
+```
+
+* You can pipe it through `grep` for partial name matches.
+* This is memory-efficient and much faster than UI tools.
+
+
+
+#### **2. Use S3 Select with Filtering (for content)**
+
+If you're trying to **search inside the content** of large files (e.g., CSV or JSON), you can use **S3 Select** to query within the file without downloading it.
+
+Example for CSV:
+
+```bash
+aws s3api select-object-content \
+    --bucket your-bucket \
+    --key your-file.csv \
+    --expression "SELECT * FROM S3Object s WHERE s.column = 'value'" \
+    --expression-type SQL \
+    --input-serialization '{"CSV": {"FileHeaderInfo": "USE"}, "CompressionType": "NONE"}' \
+    --output-serialization '{"CSV": {}}' output.txt
+```
+
+---
+
+#### **3. Use Amazon S3 Inventory**
+
+If you want to **search across millions of objects**, enable [S3 Inventory](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-inventory.html):
+
+* S3 generates a **daily or weekly CSV/ORC listing** of all your objects (names, sizes, timestamps, etc.).
+* You can load this into Athena or a database and query efficiently using SQL-like queries.
+
+
+
+#### **4. Use Amazon Athena on S3**
+
+If you’ve enabled S3 Inventory or if your object listing is exported to S3:
+
+* Create an **Athena table** over that inventory file.
+* Run queries like:
+
+  ```sql
+  SELECT * FROM s3_inventory_table WHERE key LIKE '%myfilepart%'
+  ```
+
+
+
+#### **5. Use Boto3/Python Script (Advanced Control)**
+
+If you're comfortable with scripting, this Python snippet helps scan with filtering:
+
+```python
+import boto3
+
+s3 = boto3.client('s3')
+paginator = s3.get_paginator('list_objects_v2')
+bucket = 'your-bucket-name'
+prefix = 'folder/'  # Optional
+
+for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+    for obj in page.get('Contents', []):
+        if 'my_partial_filename' in obj['Key']:
+            print(obj['Key'])
+```
+
+
+
+### ❌ Not Recommended
+
+* **Cyberduck or AWS Console**: They don’t scale well for large buckets with millions of objects.
+* **Downloading full listing manually**: Inefficient for large datasets.
+
+
+
+Would you like a quick CLI or Python script tailored to your bucket structure and naming convention?
+To download the **top 100 files** from your **AWS S3 bucket** into your **container's `/tmp` folder**, assuming your container has AWS CLI configured and access to S3, follow this step-by-step approach:
+
+
+
+### ✅ **Step-by-step Command (Download Top 100 Files)**
+
+```bash
+aws s3 ls s3://your-bucket-name/path/ --recursive | \
+  sort | \
+  head -n 100 | \
+  awk '{print $4}' | \
+  while read file; do
+    aws s3 cp s3://your-bucket-name/"$file" /tmp/
+done
+```
+
+
+
+### 🔍 **Explanation:**
+
+* `aws s3 ls --recursive`: Lists all files with full paths.
+* `sort`: Sorts the list alphabetically (you can sort by timestamp with other tricks if needed).
+* `head -n 100`: Takes the top 100 entries.
+* `awk '{print $4}'`: Extracts the object keys (paths).
+* `aws s3 cp`: Copies each file to `/tmp/`.
+
+> Make sure `/tmp/` in your container has enough space for the files you're downloading.
+
+
+
+### 🚀 Optional: Sort by Timestamp Instead (Most Recent Files)
+
+If you want to **download the most recent 100 files**, use this instead:
+
+```bash
+aws s3api list-objects-v2 --bucket your-bucket-name --query \
+'Contents[?starts_with(Key, `path/`)] | sort_by(@, &LastModified)[-100:].Key' \
+--output text | \
+xargs -n 1 -I {} aws s3 cp s3://your-bucket-name/{} /tmp/
+```
+
+This uses `aws s3api` to sort by `LastModified` and downloads the most recent 100 files.
+
+
+
+Would you like the same script in Python or Bash as a standalone file?
