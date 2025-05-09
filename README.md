@@ -840,3 +840,144 @@ done
 echo "✅ Done copying files from container to local directory."
 
 ```
+### Jpa query deadlock
+#### I am fetching recrods from  a table using spring data jpa findbychannleConfigAndStateOrderbyInitAtAsc(channhelConfig, stage, pageable) which spring data jpa method and on top it @Transactional(isolation = ISOlatio.DEFAULT, timout=300, readonly) but i go tone error while executing in QA and this error is not frequent but very rare but gettim some time error is "org.springframewor.orm.jpa.JpaSystemExce[tion: A problem occurred in the SQL executor : error advancing (next) resuletSet position [An error occurred during the current command (Done status 0). Trenasction (Process ID 545) was deadlock on lock | communication buffer resources with another process and has been chosen as the deadlock victim, Rerun the transaction.]
+
+The error you're encountering is a classic **SQL Server deadlock** scenario, and the exception is caused when **your transaction is selected as the "deadlock victim"** by the SQL Server engine. Here's a breakdown and recommendations:
+
+
+
+### 🧠 **What the Error Means**
+
+* **Error Message:**
+
+  ```
+  Transaction (Process ID xxx) was deadlocked on lock | communication buffer resources with another process and has been chosen as the deadlock victim.
+  ```
+
+* This occurs when two (or more) transactions are waiting on resources locked by each other, causing a circular wait.
+
+* SQL Server detects the deadlock and **kills one of the transactions** (based on cost/priority), which in your case is the Spring Data JPA `findByChannelConfigAndStateOrderByInitAtAsc(...)` method.
+
+
+
+### 🔍 **Why This Might Be Happening in Your Case**
+
+1. **Concurrency**: Multiple threads/processes (like Airflow DAGs, or parallel Spring threads) accessing and possibly updating rows at the same time.
+
+2. **Shared Table with Inserts & Updates**: If you are fetching with a `readOnly=true` transaction, but another process is inserting or updating the same rows, locks may conflict.
+
+3. **Order By with Pagination**: `ORDER BY init_at ASC` causes a **sort** operation, possibly leading to row/page/lock escalations especially with large volumes of data.
+
+4. **No proper indexes**: Can cause longer table/page scans, increasing chances of locks overlapping.
+
+
+
+### ✅ **Best Practices and Fixes**
+
+#### 1. **Add Optimized Composite Index**
+
+Since you're using:
+
+```java
+findByChannelConfigAndStateOrderByInitAtAsc(...)
+```
+
+Create a **composite index**:
+
+```sql
+CREATE NONCLUSTERED INDEX idx_channel_state_initat
+ON cloud_extraction(channel_config_id, state, init_at ASC);
+```
+
+> This ensures your WHERE and ORDER BY clauses are fully indexed.
+
+
+
+#### 2. **Use `@Transactional(readOnly = true)` Carefully**
+
+It’s good you marked it `readOnly = true`, but:
+
+* Ensure **other transactions writing to the table** aren’t locking entire pages/rows that your read also accesses.
+* Also, make sure you **don’t accidentally modify anything in this transaction** (even lazy-loading and updating related entities).
+
+
+
+#### 3. **Set a Deadlock Retry Mechanism**
+
+Spring doesn’t retry deadlocks by default. Use a retry mechanism like:
+
+```java
+@Retryable(
+    value = { DeadlockLoserDataAccessException.class },
+    maxAttempts = 3,
+    backoff = @Backoff(delay = 1000)
+)
+@Transactional(...)
+public List<CloudExtraction> fetchPage(...) {
+    ...
+}
+```
+
+> Use `spring-retry` dependency for this.
+
+
+
+#### 4. **Check Isolation Level**
+
+Your current configuration:
+
+```java
+@Transactional(isolation = Isolation.DEFAULT, timeout = 300, readOnly = true)
+```
+
+* **Isolation.DEFAULT**: Uses the database’s default (usually `READ COMMITTED`).
+* Try explicitly setting to `READ COMMITTED` or even `READ UNCOMMITTED` if your business logic can tolerate dirty reads:
+
+  ```java
+  @Transactional(isolation = Isolation.READ_COMMITTED, timeout = 300, readOnly = true)
+  ```
+
+
+
+#### 5. **Use `Slice` Instead of `Page`**
+
+`Page` triggers a `SELECT COUNT(*)` internally, which may cause additional locks.
+Use:
+
+```java
+Slice<CloudExtraction> slice = repo.findSliceByChannelConfigAndStateOrderByInitAtAsc(...);
+```
+
+This avoids counting total rows.
+
+
+
+#### 6. **Analyze Deadlocks in SQL Server**
+
+Use:
+
+```sql
+SELECT * FROM sys.dm_os_ring_buffers
+WHERE ring_buffer_type = 'RING_BUFFER_DEADLOCK';
+```
+
+Or enable deadlock tracing and analyze deadlock graphs using Extended Events or SQL Server Profiler.
+
+
+
+### 📌 Summary of What to Check and Do
+
+| Area            | Recommendation                                              |
+| --------------- | ----------------------------------------------------------- |
+| Indexing        | Add composite index `(channel_config_id, state, init_at)`   |
+| Retry           | Use `@Retryable` for transient errors like deadlocks        |
+| Isolation       | Consider `READ_COMMITTED` or `READ_UNCOMMITTED`             |
+| Query Type      | Use `Slice` instead of `Page`                               |
+| SQL Server      | Enable deadlock monitoring to analyze root cause            |
+| Lock Contention | Avoid overlapping inserts/updates/fetches in same rows/time |
+
+
+
+Would you like a sample `@Retryable` method and index DDL ready for copy-paste?
+
