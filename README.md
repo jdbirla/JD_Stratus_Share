@@ -1057,3 +1057,66 @@ data:" > /tmp/secret.yaml
         - name: vault-secrets
           emptyDir: {}
 ```
+### creating secret dynamicall and importing inti template
+``yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: secret-generator
+spec:
+  template:
+    metadata:
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "myapp-role"
+        vault.hashicorp.com/agent-inject-secret-app-config: "secret/data/app/config"
+        vault.hashicorp.com/agent-inject-template-app-config: |
+          {{- with secret "secret/data/app/config" -}}
+          export DB_URL="{{ .Data.data.db.url }}"
+          export DB_PASS="{{ .Data.data.db.pass }}"
+          export DB_PORT="{{ .Data.data.db.port }}"
+          {{- end }}
+    spec:
+      serviceAccountName: myapp-sa
+      containers:
+        - name: kubectl
+          image: bitnami/kubectl:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Wait for Vault Agent to inject secrets
+              until [ -f /vault/secrets/app-config ]; do sleep 1; done
+
+              # Load Vault secrets as environment variables
+              source /vault/secrets/app-config
+
+              # Base64-encode values
+              DB_URL_B64=$(echo -n "$DB_URL" | base64 -w0)
+              DB_PASS_B64=$(echo -n "$DB_PASS" | base64 -w0)
+              DB_PORT_B64=$(echo -n "$DB_PORT" | base64 -w0)
+
+              # Replace placeholders in the template
+              sed \
+                -e "s|{{ .DB_URL }}|$DB_URL_B64|g" \
+                -e "s|{{ .DB_PASS }}|$DB_PASS_B64|g" \
+                -e "s|{{ .DB_PORT }}|$DB_PORT_B64|g" \
+                /templates/secret-template.yaml > /tmp/secret.yaml
+
+              # Apply the Secret
+              kubectl apply -f /tmp/secret.yaml
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault/secrets
+            - name: template-volume  # Mount the ConfigMap here
+              mountPath: /templates
+      volumes:
+        - name: vault-secrets
+          emptyDir: {}
+        - name: template-volume    # Reference the ConfigMap
+          configMap:
+            name: secret-template   # Name of the ConfigMap
+            items:
+              - key: secret-template.yaml  # Key in the ConfigMap
+                path: secret-template.yaml # File name in the pod
+      restartPolicy: Never
+```
