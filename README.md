@@ -981,3 +981,79 @@ Or enable deadlock tracing and analyze deadlock graphs using Extended Events or 
 
 Would you like a sample `@Retryable` method and index DDL ready for copy-paste?
 
+---
+## kubeclt apply for valut
+```sh
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      annotations:
+        # Vault Agent Injector annotations
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "myapp-role"  # Pre-configured Vault role
+        vault.hashicorp.com/agent-inject-secret-app-config: "secret/data/app/config"
+        # Template to write secrets as KEY=VALUE pairs (one per line)
+        vault.hashicorp.com/agent-inject-template-app-config: |
+          {{- with secret "secret/data/app/config" -}}
+          {{ range $key, $value := .Data.data }}
+          {{ $key }}={{ $value }}
+          {{ end }}
+          {{- end }}
+    spec:
+      serviceAccountName: myapp-sa  # Service account with Vault/Secret permissions
+      initContainers:
+        - name: create-k8s-secret
+          image: bitnami/kubectl:latest  # Image with kubectl
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Wait for Vault Agent to write secrets
+              until [ -f /vault/secrets/app-config ]; do sleep 1; done
+
+              # Parse the Vault secrets file into a Kubernetes Secret
+              echo "Creating Kubernetes Secret..."
+              SECRET_FILE="/vault/secrets/app-config"
+              SECRET_NAME="app-secrets"
+
+              # Start building the Secret YAML
+              echo "apiVersion: v1
+kind: Secret
+metadata:
+  name: ${SECRET_NAME}
+  namespace: $(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+type: Opaque
+data:" > /tmp/secret.yaml
+
+              # Process each line (KEY=VALUE) from the Vault secrets file
+              while IFS='=' read -r KEY VALUE; do
+                # Skip empty lines
+                if [ -z "$KEY" ]; then continue; fi
+                # Base64 encode the value
+                ENCODED_VALUE=$(echo -n "$VALUE" | base64 -w0)
+                echo "  $KEY: $ENCODED_VALUE" >> /tmp/secret.yaml
+              done < "$SECRET_FILE"
+
+              # Apply the Secret
+              kubectl apply -f /tmp/secret.yaml
+              echo "Secret ${SECRET_NAME} created/updated."
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault/secrets
+      containers:
+        - name: myapp
+          image: myapp:latest
+          envFrom:
+            - secretRef:
+                name: app-secrets  # Use the generated Secret
+      volumes:
+        - name: vault-secrets
+          emptyDir: {}
+```
