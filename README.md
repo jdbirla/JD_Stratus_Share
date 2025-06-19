@@ -1120,3 +1120,40 @@ spec:
                 path: secret-template.yaml # File name in the pod
       restartPolicy: Never
 ```
+---
+
+## webclient
+
+```java
+public class WebClientLogger {
+
+    public static ExchangeFilterFunction logRequestAndResponse() {
+        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
+            System.out.println("=== WebClient Request ===");
+            System.out.println(clientRequest.method() + " " + clientRequest.url());
+            clientRequest.headers()
+                         .forEach((name, values) -> values.forEach(
+                             value -> System.out.println("Header: " + name + " = " + value)
+                         ));
+            return Mono.just(clientRequest);
+        }).andThen(ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
+            System.out.println("=== WebClient Response ===");
+            System.out.println("Status Code: " + clientResponse.statusCode());
+            clientResponse.headers().asHttpHeaders()
+                         .forEach((name, values) -> values.forEach(
+                             value -> System.out.println("Header: " + name + " = " + value)
+                         ));
+            return Mono.just(clientResponse);
+        }));
+    }
+}
+```
+```
+webClient.post()
+    .uri("https://...")
+    .bodyValue(xmlBody)
+    .retrieve()
+    .bodyToMono(String.class)
+    .doOnNext(body -> System.out.println("Response Body:\n" + body))
+    .block();
+```
