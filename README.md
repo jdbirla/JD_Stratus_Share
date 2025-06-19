@@ -1256,3 +1256,135 @@ public class WebClientConfig {
     }
 }
 ```
+```
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.ClientRequest;
+import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.DefaultUriBuilderFactory;
+import reactor.core.publisher.Mono;
+import reactor.netty.http.client.HttpClient;
+import reactor.netty.transport.ProxyProvider;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+@Configuration
+public class WebClientConfig {
+
+    private static final String LOCAL_PROXY_HOST = "example.com";
+    private static final int LOCAL_PROXY_PORT = 3880;
+
+    @Bean(name = "bbgchatWebClient")
+    @Profile("local")
+    public WebClient bbgchatWebClientLocal(SmarshBigApiProperties properties) {
+        log.info("Creating LOCAL profile WebClient with proxy: {}:{}", LOCAL_PROXY_HOST, LOCAL_PROXY_PORT);
+        return createWebClient(properties.getCredentials(), true);
+    }
+
+    @Bean(name = "bbgchatWebClient")
+    @Profile("!local")
+    public WebClient bbgchatWebClient(SmarshBigApiProperties properties) {
+        log.info("Creating NON-LOCAL profile WebClient with direct connection");
+        return createWebClient(properties.getCredentials(), false);
+    }
+
+    private WebClient createWebClient(SmarshBigApiProperties.Credentials credentials, boolean localEnv) {
+        HttpClient httpClient = HttpClient.create()
+                .wiretap(true)  // Ensure wiretap is enabled
+                .metrics(true, () -> new MicrometerChannelMetricsRecorder("bbgchat", "client"));
+
+        if (localEnv) {
+            httpClient = httpClient.proxy(proxy -> proxy
+                    .type(ProxyProvider.Proxy.HTTP)
+                    .host(LOCAL_PROXY_HOST)
+                    .port(LOCAL_PROXY_PORT));
+        }
+
+        DefaultUriBuilderFactory uriFactory = new DefaultUriBuilderFactory();
+        uriFactory.setEncodingMode(DefaultUriBuilderFactory.EncodingMode.NONE);
+
+        return WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .uriBuilderFactory(uriFactory)
+                .filter(basicAuthenticationFilter(credentials.getUsername(), credentials.getPassword()))
+                .filter(requestLoggingFilter())
+                .filter(responseLoggingFilter())  // Added response logging
+                .filter(errorHandlingFilter())    // Added error handling
+                .filter(proxyHeaderFilter(localEnv))
+                .build();
+    }
+
+    private ExchangeFilterFunction basicAuthenticationFilter(String username, String password) {
+        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
+            log.debug("Applying BASIC authentication for user: {}", username);
+            
+            // Verify credentials aren't empty
+            if (username == null || username.isEmpty() || password == null || password.isEmpty()) {
+                log.error("BASIC authentication credentials are missing!");
+                return Mono.error(new IllegalStateException("Missing credentials"));
+            }
+            
+            return Mono.just(ClientRequest.from(clientRequest)
+                    .headers(headers -> headers.setBasicAuth(username, password))
+                    .build());
+        });
+    }
+
+    private ExchangeFilterFunction requestLoggingFilter() {
+        return (request, next) -> {
+            log.debug("Request: {} {}", request.method(), request.url());
+            request.headers().forEach((name, values) -> {
+                if (!"Authorization".equalsIgnoreCase(name)) {  // Avoid logging credentials
+                    values.forEach(value -> log.debug("Request header: {}={}", name, value));
+                }
+            });
+            return next.exchange(request);
+        };
+    }
+
+    private ExchangeFilterFunction responseLoggingFilter() {
+        return ExchangeFilterFunction.ofResponseProcessor(response -> {
+            log.debug("Response status: {}", response.statusCode());
+            response.headers().asHttpHeaders().forEach((name, values) -> 
+                values.forEach(value -> log.debug("Response header: {}={}", name, value))
+            );
+            return Mono.just(response);
+        });
+    }
+
+    private ExchangeFilterFunction errorHandlingFilter() {
+        return ExchangeFilterFunction.ofResponseProcessor(response -> {
+            if (response.statusCode().isError()) {
+                return response.bodyToMono(String.class)
+                        .flatMap(body -> {
+                            log.error("HTTP Error {}: {}", response.statusCode().value(), body);
+                            return Mono.error(new WebClientException(
+                                "HTTP " + response.statusCode().value() + ": " + body
+                            ));
+                        });
+            }
+            return Mono.just(response);
+        });
+    }
+
+    private ExchangeFilterFunction proxyHeaderFilter(boolean localEnv) {
+        return (request, next) -> {
+            if (localEnv) {
+                // Add proxy verification headers
+                return next.exchange(ClientRequest.from(request)
+                        .header("X-Proxy-Verification", "active")
+                        .header("X-Proxy-Host", LOCAL_PROXY_HOST)
+                        .header("X-Proxy-Port", String.valueOf(LOCAL_PROXY_PORT))
+                        .build());
+            }
+            return next.exchange(request);
+        };
+    }
+}
+```
