@@ -1157,3 +1157,102 @@ webClient.post()
     .doOnNext(body -> System.out.println("Response Body:\n" + body))
     .block();
 ```
+
+```java
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.ClientRequest;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.DefaultUriBuilderFactory;
+import reactor.core.publisher.Mono;
+import reactor.netty.http.client.HttpClient;
+import reactor.netty.transport.ProxyProvider;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+@Configuration
+public class WebClientConfig {
+
+    private static final String LOCAL_PROXY_HOST = "example.com";
+    private static final int LOCAL_PROXY_PORT = 3880;
+
+    @Bean(name = "bbgchatWebClient")
+    @Profile("local")
+    public WebClient bbgchatWebClientLocal(SmarshBigApiProperties properties) {
+        log.info("Creating LOCAL profile WebClient with proxy: {}:{}", LOCAL_PROXY_HOST, LOCAL_PROXY_PORT);
+        return createWebClient(properties.getCredentials(), true);
+    }
+
+    @Bean(name = "bbgchatWebClient")
+    @Profile("!local")
+    public WebClient bbgchatWebClient(SmarshBigApiProperties properties) {
+        log.info("Creating NON-LOCAL profile WebClient with direct connection");
+        return createWebClient(properties.getCredentials(), false);
+    }
+
+    private WebClient createWebClient(SmarshBigApiProperties.Credentials credentials, boolean localEnv) {
+        // Configure HTTP client with proxy for local environment
+        HttpClient httpClient = HttpClient.create()
+                .wiretap(true) // Enable detailed network logging
+                .metrics(true, () -> new MicrometerChannelMetricsRecorder("bbgchat", "client"));
+
+        if (localEnv) {
+            httpClient = httpClient.proxy(proxy -> proxy
+                    .type(ProxyProvider.Proxy.HTTP)
+                    .host(LOCAL_PROXY_HOST)
+                    .port(LOCAL_PROXY_PORT));
+        }
+
+        // Configure URI encoding
+        DefaultUriBuilderFactory uriFactory = new DefaultUriBuilderFactory();
+        uriFactory.setEncodingMode(DefaultUriBuilderFactory.EncodingMode.NONE);
+
+        // Build WebClient with authentication
+        return WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .uriBuilderFactory(uriFactory)
+                .filter(basicAuthenticationFilter(credentials.getUsername(), credentials.getPassword()))
+                .filter(requestLoggingFilter())
+                .filter(proxyVerificationFilter(localEnv))
+                .build();
+    }
+
+    // Basic authentication filter
+    private ExchangeFilterFunction basicAuthenticationFilter(String username, String password) {
+        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
+            log.debug("Applying BASIC authentication for user: {}", username);
+            return Mono.just(ClientRequest.from(clientRequest)
+                    .headers(headers -> headers.setBasicAuth(username, password))
+                    .build());
+        });
+    }
+
+    // Request/response logging filter
+    private ExchangeFilterFunction requestLoggingFilter() {
+        return (request, next) -> {
+            log.debug("Request: {} {}", request.method(), request.url());
+            request.headers().forEach((name, values) -> 
+                values.forEach(value -> log.debug("Header: {}={}", name, value))
+            );
+            return next.exchange(request);
+        };
+    }
+
+    // Proxy verification filter
+    private ExchangeFilterFunction proxyVerificationFilter(boolean shouldUseProxy) {
+        return (request, next) -> {
+            if (shouldUseProxy) {
+                log.debug("Verifying proxy configuration is active");
+                // This will be visible in wiretap logs
+                return next.exchange(ClientRequest.from(request)
+                        .header("X-Proxy-Verification", "expected")
+                        .build());
+            }
+            return next.exchange(request);
+        };
+    }
+}
+```
