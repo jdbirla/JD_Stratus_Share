@@ -1388,3 +1388,44 @@ public class WebClientConfig {
     }
 }
 ```
+
+```java
+package com.drivewealth.aod.mf.processors.af.config;
+
+import lombok.extern.log4j.Log4j2;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import reactor.core.publisher.Mono;
+
+import java.util.List;
+
+@Log4j2
+public class LoggingUtils {
+    public static ExchangeFilterFunction logRequest() {
+        return (clientRequest, next) -> {
+            log.info("---------------------------------------------------------------");
+            log.info("-------- Http Request: --------");
+            log.info("AllFund Request: {} {}", clientRequest.method(), clientRequest.url());
+            clientRequest.headers().forEach(LoggingUtils::logHeader);
+            return next.exchange(clientRequest);
+        };
+    }
+
+
+    public static ExchangeFilterFunction logResponse() {
+        return ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
+            log.info("-------- Http Response: --------");
+            log.info("AllFund Response: {}", clientResponse.statusCode());
+            clientResponse.headers().asHttpHeaders()
+                    .forEach(LoggingUtils::logHeader);
+            log.info("---------------------------------------------------------------");
+            return Mono.just(clientResponse);
+        });
+    }
+
+    private static void logHeader(String name, List<String> values) {
+        values.forEach(value -> log.debug("{}={}", name, value));
+    }
+
+}
+
+```
