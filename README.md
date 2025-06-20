@@ -1429,3 +1429,49 @@ public class LoggingUtils {
 }
 
 ```
+```java
+import org.springframework.http.HttpRequest;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.ClientHttpResponse;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+
+public class CurlLoggingInterceptor implements ClientHttpRequestInterceptor {
+
+    @Override
+    public ClientHttpResponse intercept(
+            HttpRequest request, byte[] body,
+            ClientHttpRequestExecution execution) throws IOException {
+
+        String curlCommand = toCurl(request, body);
+        System.out.println("========== cURL Request ==========");
+        System.out.println(curlCommand);
+        System.out.println("==================================");
+
+        return execution.execute(request, body);
+    }
+
+    private String toCurl(HttpRequest request, byte[] body) {
+        StringBuilder sb = new StringBuilder("curl -X ").append(request.getMethod())
+            .append(" '").append(request.getURI()).append("'");
+
+        // Add headers
+        for (var header : request.getHeaders().entrySet()) {
+            for (String value : header.getValue()) {
+                sb.append(" -H '").append(header.getKey()).append(": ").append(value).append("'");
+            }
+        }
+
+        // Add body if exists
+        if (body.length > 0) {
+            String bodyString = new String(body, StandardCharsets.UTF_8).replace("'", "\\'");
+            sb.append(" --data '").append(bodyString).append("'");
+        }
+
+        return sb.toString();
+    }
+}
+```
