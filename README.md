@@ -1475,3 +1475,109 @@ public class CurlLoggingInterceptor implements ClientHttpRequestInterceptor {
     }
 }
 ```
+
+```java
+import org.apache.http.HttpHost;
+import org.apache.http.auth.AuthSchemeProvider;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.client.config.AuthSchemes;
+import org.apache.http.client.protocol.HttpClientContext;
+import org.apache.http.config.Lookup;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.impl.auth.DigestSchemeFactory;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
+import org.apache.http.impl.nio.client.HttpAsyncClients;
+import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
+import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
+import org.apache.http.nio.reactor.IOReactorException;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.client.reactive.HttpComponentsAsyncClientHttpConnector;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import java.util.Collections;
+import java.util.concurrent.TimeUnit;
+
+@Configuration
+public class WebClientConfig {
+
+    private static final String LOCAL_PROXY_HOST = "example.com";
+    private static final int LOCAL_PROXY_PORT = 3880;
+    private static final String TARGET_HOST = "your-target-service.com";
+    private static final int TARGET_PORT = 443;
+
+    @Bean(name = "bbgchatWebClient")
+    @Profile("local")
+    public WebClient bbgchatWebClientLocal(SmarshBigApiProperties properties) throws IOReactorException {
+        return createWebClient(properties.getCredentials(), true);
+    }
+
+    @Bean(name = "bbgchatWebClient")
+    @Profile("!local")
+    public WebClient bbgchatWebClient(SmarshBigApiProperties properties) throws IOReactorException {
+        return createWebClient(properties.getCredentials(), false);
+    }
+
+    private WebClient createWebClient(SmarshBigApiProperties.Credentials credentials, boolean localEnv) throws IOReactorException {
+        CloseableHttpAsyncClient httpAsyncClient = createHttpAsyncClient(credentials, localEnv);
+        httpAsyncClient.start();
+        
+        return WebClient.builder()
+                .clientConnector(new HttpComponentsAsyncClientHttpConnector(httpAsyncClient))
+                .build();
+    }
+
+    private CloseableHttpAsyncClient createHttpAsyncClient(SmarshBigApiProperties.Credentials credentials, boolean localEnv) throws IOReactorException {
+        // Create credentials provider
+        CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+        credentialsProvider.setCredentials(
+                new AuthScope(TARGET_HOST, TARGET_PORT),
+                new UsernamePasswordCredentials(credentials.getUsername(), credentials.getPassword())
+        );
+
+        // Configure digest authentication scheme
+        Lookup<AuthSchemeProvider> authSchemeRegistry = RegistryBuilder.<AuthSchemeProvider>create()
+                .register(AuthSchemes.DIGEST, new DigestSchemeFactory())
+                .build();
+
+        // Create connection manager
+        PoolingNHttpClientConnectionManager connectionManager = new PoolingNHttpClientConnectionManager(
+                new DefaultConnectingIOReactor()
+        );
+        connectionManager.setMaxTotal(100);
+        connectionManager.setDefaultMaxPerRoute(20);
+
+        // Configure HTTP client builder
+        HttpAsyncClients.custom()
+                .setConnectionManager(connectionManager)
+                .setDefaultCredentialsProvider(credentialsProvider)
+                .setDefaultAuthSchemeRegistry(authSchemeRegistry)
+                .setProxy(localEnv ? new HttpHost(LOCAL_PROXY_HOST, LOCAL_PROXY_PORT) : null)
+                .setConnectionTimeToLive(30, TimeUnit.SECONDS)
+                .setMaxConnPerRoute(10)
+                .setMaxConnTotal(50);
+
+        return httpAsyncClient;
+    }
+
+    // Create HttpClientContext with AuthCache
+    private HttpClientContext createHttpClientContext(boolean localEnv) {
+        HttpClientContext context = HttpClientContext.create();
+        
+        if (localEnv) {
+            // Configure proxy for local environment
+            context.setAttribute("http.proxy_host", LOCAL_PROXY_HOST);
+            context.setAttribute("http.proxy_port", LOCAL_PROXY_PORT);
+        }
+        
+        // Configure AuthCache for digest authentication
+        context.setAttribute(HttpClientContext.AUTH_CACHE, new DefaultAuthCache());
+        
+        return context;
+    }
+}
+```
