@@ -1581,3 +1581,253 @@ public class WebClientConfig {
     }
 }
 ```
+
+```
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.reactive.function.client.ClientRequest;
+import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.ExchangeFunction;
+import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
+
+public class DigestAuthFilter implements ExchangeFilterFunction {
+
+    private final String username;
+    private final String password;
+    private String nonce;
+    private String realm;
+    private String qop;
+    private String opaque;
+    private String algorithm = "MD5";
+    private int nc = 1;
+    private final Random random = new Random();
+
+    public DigestAuthFilter(String username, String password) {
+        this.username = username;
+        this.password = password;
+    }
+
+    @Override
+    public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
+        return next.exchange(request)
+            .flatMap(response -> {
+                if (response.statusCode() == HttpStatus.UNAUTHORIZED) {
+                    String authHeader = response.headers().getFirst(HttpHeaders.WWW_AUTHENTICATE);
+                    if (authHeader != null && authHeader.startsWith("Digest")) {
+                        return response.releaseBody()
+                            .then(Mono.defer(() -> 
+                                retryWithDigestAuth(request, next, authHeader)));
+                    }
+                }
+                return Mono.just(response);
+            })
+            .retryWhen(Retry.max(1).filter(throwable -> throwable instanceof DigestAuthRetryException));
+    }
+
+    private Mono<ClientResponse> retryWithDigestAuth(ClientRequest originalRequest, 
+                                                    ExchangeFunction next, 
+                                                    String authHeader) {
+        parseAuthHeader(authHeader);
+        String method = originalRequest.method().name();
+        String uri = originalRequest.url().getPath();
+        String cnonce = generateCnonce();
+        String responseValue = calculateDigestResponse(method, uri, cnonce);
+
+        String authValue = "Digest " + buildAuthString(responseValue, cnonce, uri);
+
+        ClientRequest newRequest = ClientRequest.from(originalRequest)
+            .header(HttpHeaders.AUTHORIZATION, authValue)
+            .build();
+
+        nc++;
+        return next.exchange(newRequest);
+    }
+
+    private void parseAuthHeader(String header) {
+        Map<String, String> params = new HashMap<>();
+        String[] parts = header.substring(7).split(",");
+        for (String part : parts) {
+            String[] keyValue = part.trim().split("=", 2);
+            if (keyValue.length == 2) {
+                String key = keyValue[0].trim();
+                String value = keyValue[1].trim().replace("\"", "");
+                params.put(key, value);
+            }
+        }
+
+        realm = params.get("realm");
+        nonce = params.get("nonce");
+        qop = params.get("qop");
+        opaque = params.get("opaque");
+        if (params.containsKey("algorithm")) {
+            algorithm = params.get("algorithm");
+        }
+    }
+
+    private String calculateDigestResponse(String method, String uri, String cnonce) {
+        try {
+            String ha1 = md5(username + ":" + realm + ":" + password);
+            String ha2 = md5(method + ":" + uri);
+            
+            String ncString = String.format("%08x", nc);
+            String response;
+            
+            if (qop != null && qop.contains("auth")) {
+                response = md5(ha1 + ":" + nonce + ":" + ncString + ":" + cnonce + ":" + qop + ":" + ha2);
+            } else {
+                response = md5(ha1 + ":" + nonce + ":" + ha2);
+            }
+            
+            return response;
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("MD5 algorithm not available", e);
+        }
+    }
+
+    private String buildAuthString(String responseValue, String cnonce, String uri) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("username=\"").append(username).append("\", ");
+        sb.append("realm=\"").append(realm).append("\", ");
+        sb.append("nonce=\"").append(nonce).append("\", ");
+        sb.append("uri=\"").append(uri).append("\", ");
+        sb.append("response=\"").append(responseValue).append("\", ");
+        
+        if (qop != null) {
+            sb.append("qop=").append(qop).append(", ");
+            sb.append("nc=").append(String.format("%08x", nc)).append(", ");
+            sb.append("cnonce=\"").append(cnonce).append("\", ");
+        }
+        
+        if (algorithm != null) {
+            sb.append("algorithm=").append(algorithm).append(", ");
+        }
+        
+        if (opaque != null) {
+            sb.append("opaque=\"").append(opaque).append("\"");
+        }
+        
+        // Remove trailing comma if needed
+        if (sb.charAt(sb.length() - 2) == ',') {
+            sb.setLength(sb.length() - 2);
+        }
+        
+        return sb.toString();
+    }
+
+    private String md5(String input) throws NoSuchAlgorithmException {
+        MessageDigest md = MessageDigest.getInstance(algorithm);
+        byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
+        return bytesToHex(digest).toLowerCase();
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    private String generateCnonce() {
+        byte[] bytes = new byte[16];
+        random.nextBytes(bytes);
+        return bytesToHex(bytes);
+    }
+
+    private static class DigestAuthRetryException extends RuntimeException {
+        public DigestAuthRetryException() {
+            super("Retry with Digest Auth");
+        }
+    }
+}
+```
+
+```java
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
+
+import java.time.Duration;
+
+@Configuration
+public class WebClientConfig {
+
+    private static final String LOCAL_PROXY_HOST = "proxy.example.com";
+    private static final int LOCAL_PROXY_PORT = 3880;
+
+    @Bean(name = "bbgchatWebClient")
+    @Profile("local")
+    public WebClient bbgchatWebClientLocal(SmarshBigApiProperties properties) {
+        return createWebClient(properties.getCredentials(), true);
+    }
+
+    @Bean(name = "bbgchatWebClient")
+    @Profile("!local")
+    public WebClient bbgchatWebClient(SmarshBigApiProperties properties) {
+        return createWebClient(properties.getCredentials(), false);
+    }
+
+    private WebClient createWebClient(SmarshBigApiProperties.Credentials credentials, boolean localEnv) {
+        HttpClient httpClient = HttpClient.create()
+            .responseTimeout(Duration.ofSeconds(30))
+            .wiretap(true);  // Enable detailed logging
+
+        if (localEnv) {
+            httpClient = httpClient.proxy(proxy -> proxy
+                .type(reactor.netty.transport.ProxyProvider.Proxy.HTTP)
+                .host(LOCAL_PROXY_HOST)
+                .port(LOCAL_PROXY_PORT));
+        }
+
+        WebClient.Builder builder = WebClient.builder()
+            .clientConnector(new ReactorClientHttpConnector(httpClient))
+            .filter(requestLoggingFilter())
+            .filter(responseLoggingFilter());
+
+        if (!localEnv) {
+            builder = builder.filter(new DigestAuthFilter(
+                credentials.getUsername(),
+                credentials.getPassword()
+            ));
+        }
+
+        return builder.build();
+    }
+
+    private ExchangeFilterFunction requestLoggingFilter() {
+        return (request, next) -> {
+            System.out.println("[WebClient] Request: " + request.method() + " " + request.url());
+            request.headers().forEach((name, values) -> {
+                if (!"Authorization".equalsIgnoreCase(name)) {
+                    values.forEach(value -> System.out.println("[WebClient] Header: " + name + "=" + value));
+                }
+            });
+            return next.exchange(request);
+        };
+    }
+
+    private ExchangeFilterFunction responseLoggingFilter() {
+        return (request, next) -> next.exchange(request)
+            .doOnNext(response -> {
+                System.out.println("[WebClient] Response: " + response.statusCode());
+                response.headers().asHttpHeaders().forEach((name, values) -> 
+                    values.forEach(value -> System.out.println("[WebClient] Header: " + name + "=" + value))
+                );
+            });
+    }
+}
+```
