@@ -2047,3 +2047,7 @@ with DAG(
         },
     )
 ```
+```
+{{ (dag_run.conf.get('run_date') | default((logical_date - macros.timedelta(days=1)) | ds)) ~ 'T00:00:00.000+0000' }}
+
+```
