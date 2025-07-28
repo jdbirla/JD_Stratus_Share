@@ -1935,3 +1935,40 @@ If you need **graphical trees or charts**, export the JSON and visualize it with
 
 Would you like a fully working Postman Visualizer HTML template to display your response as an expandable tree with color and indentation? Just share a sample response schema.
 
+---
+
+## DAG conf date
+```py
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime, timedelta
+
+def my_function(run_date, logical_date):
+    print(f"Run date (from conf): {run_date}")
+    print(f"Logical date: {logical_date}")
+
+    # If run_date is None, fallback to logical_date - 1 day
+    if not run_date:
+        processing_date = (logical_date - timedelta(days=1)).strftime("%Y%m%d")
+    else:
+        processing_date = run_date  # Use the provided date
+    print(f"Processing date: {processing_date}")
+    return processing_date
+
+with DAG(
+    dag_id="python_operator_test_dag",
+    start_date=datetime(2024, 1, 1),
+    schedule=None,
+    catchup=False,
+) as dag:
+
+    run_task = PythonOperator(
+        task_id="run_python_func",
+        python_callable=my_function,
+        op_kwargs={
+            "run_date": "{{ dag_run.conf.get('run_date') }}",
+            "logical_date": "{{ logical_date }}"
+        },
+    )
+
+```
