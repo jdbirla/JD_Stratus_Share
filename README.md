@@ -2021,3 +2021,29 @@ with DAG(
     )
 
 ```
+```py
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+
+def my_function(start_date, end_date):
+    print(f"Start Date: {start_date}")
+    print(f"End Date: {end_date}")
+
+with DAG(
+    dag_id="start_end_date_dag",
+    start_date=datetime(2024, 1, 1),
+    schedule=None,
+    catchup=False,
+    params={"run_date": ""},  # default blank
+) as dag:
+
+    run_task = PythonOperator(
+        task_id="run_python_func",
+        python_callable=my_function,
+        op_kwargs={
+            "start_date": "{{ dag_run.conf.get('run_date') if dag_run.conf.get('run_date') else (logical_date - macros.timedelta(days=1)) | ds ~ 'T00:00:00.000+0000' }}",
+            "end_date": "{{ dag_run.conf.get('run_date') if dag_run.conf.get('run_date') else (logical_date - macros.timedelta(days=1)) | ds ~ 'T23:59:59.999+0000' }}"
+        },
+    )
+```
