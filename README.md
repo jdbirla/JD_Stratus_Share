@@ -1972,3 +1972,26 @@ with DAG(
     )
 
 ```
+```
+ from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+
+def my_function(run_date):
+    print(f"Processing date: {run_date}")
+
+with DAG(
+    dag_id="jinja_date_example_dag",
+    start_date=datetime(2024, 1, 1),
+    schedule=None,
+    catchup=False,
+) as dag:
+
+    run_task = PythonOperator(
+        task_id="run_python_func",
+        python_callable=my_function,
+        op_kwargs={
+            "run_date": "{{ dag_run.conf.get('run_date', (logical_date - macros.timedelta(days=1)) | ds_nodash) }}"
+        },
+    )
+```
