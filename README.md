@@ -2055,6 +2055,18 @@ with DAG(
 ### Date formate
 
 ```
-"{{ (logical_date.astimezone(macros.timezone.utc)).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] ~ '+00:00' }}"
+html_content = f"""
+{{{{ (logical_date.astimezone(macros.timezone.utc)).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] ~ '+00:00' }}}}
+"""
+html_content = """
+{{ (logical_date.astimezone(macros.timezone.utc)).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] ~ '+00:00' }}
+"""
+
+template_part = "{{ (logical_date.astimezone(macros.timezone.utc)).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] ~ '+00:00' }}"
+html_content = """
+Some HTML here...
+{}
+""".format(template_part)
+
 ```
 
