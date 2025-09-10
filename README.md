@@ -2070,3 +2070,19 @@ Some HTML here...
 
 ```
 
+```sql
+SELECT 
+    fk.name AS FK_Name,
+    tp.name AS ParentTable,
+    cp.name AS ParentColumn,
+    tr.name AS ChildTable,
+    cr.name AS ChildColumn
+FROM sys.foreign_keys fk
+JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+JOIN sys.tables tp ON tp.object_id = fk.referenced_object_id
+JOIN sys.columns cp ON cp.object_id = tp.object_id AND cp.column_id = fkc.referenced_column_id
+JOIN sys.tables tr ON tr.object_id = fk.parent_object_id
+JOIN sys.columns cr ON cr.object_id = tr.object_id AND cr.column_id = fkc.parent_column_id
+WHERE tr.name = 'YourChildTableName';
+```
+
