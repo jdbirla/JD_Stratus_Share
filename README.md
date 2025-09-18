@@ -2086,3 +2086,83 @@ JOIN sys.columns cr ON cr.object_id = tr.object_id AND cr.column_id = fkc.parent
 WHERE tr.name = 'YourChildTableName';
 ```
 
+```py
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.utils.dates import days_ago
+from datetime import datetime
+import re
+
+# Regex for format like 2025-09-11T05:20:10.229+0000
+DATETIME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4}$")
+
+# Task 1: Print params
+def print_params(**context):
+    dag_run_conf = context["dag_run"].conf
+    from_dt = dag_run_conf.get("fromDateTime")
+    to_dt = dag_run_conf.get("toDateTime")
+
+    print("📌 Params received from dag_run.conf:")
+    print(f"   fromDateTime = {from_dt}")
+    print(f"   toDateTime   = {to_dt}")
+
+# Task 2: Validate params
+def validate_params(**context):
+    dag_run_conf = context["dag_run"].conf
+    from_dt = dag_run_conf.get("fromDateTime")
+    to_dt = dag_run_conf.get("toDateTime")
+
+    # 1. Null or empty check
+    if not from_dt or not str(from_dt).strip():
+        raise ValueError("❌ 'fromDateTime' must be provided and cannot be empty")
+    if not to_dt or not str(to_dt).strip():
+        raise ValueError("❌ 'toDateTime' must be provided and cannot be empty")
+
+    # 2. Format check with regex
+    if not DATETIME_PATTERN.match(from_dt):
+        raise ValueError(f"❌ Invalid 'fromDateTime' format: {from_dt}. Expected format: yyyy-MM-dd'T'HH:mm:ss.SSSZ")
+    if not DATETIME_PATTERN.match(to_dt):
+        raise ValueError(f"❌ Invalid 'toDateTime' format: {to_dt}. Expected format: yyyy-MM-dd'T'HH:mm:ss.SSSZ")
+
+    # 3. Convert to datetime and check range
+    try:
+        from_dt_obj = datetime.strptime(from_dt, "%Y-%m-%dT%H:%M:%S.%f%z")
+        to_dt_obj = datetime.strptime(to_dt, "%Y-%m-%dT%H:%M:%S.%f%z")
+    except Exception as e:
+        raise ValueError(f"❌ Date parsing failed: {e}")
+
+    if from_dt_obj > to_dt_obj:
+        raise ValueError("❌ 'fromDateTime' cannot be later than 'toDateTime'")
+
+    days_diff = (to_dt_obj - from_dt_obj).days
+    if days_diff > 7:
+        raise ValueError(f"❌ Date range too large: {days_diff} days. Maximum allowed is 7 days")
+
+    print(f"✅ Validation success: fromDateTime={from_dt}, toDateTime={to_dt}, duration={days_diff} days")
+
+
+# ---------------- DAG Definition ----------------
+with DAG(
+    dag_id="print_and_validate_datetime_params_dag",
+    start_date=days_ago(1),
+    schedule_interval=None,  # Trigger manually
+    catchup=False,
+    params={"fromDateTime": None, "toDateTime": None},  # default values
+    tags=["validation", "params"],
+) as dag:
+
+    print_task = PythonOperator(
+        task_id="print_params",
+        python_callable=print_params,
+        provide_context=True,
+    )
+
+    validate_task = PythonOperator(
+        task_id="validate_params",
+        python_callable=validate_params,
+        provide_context=True,
+    )
+
+    # Task flow: first print, then validate
+    print_task >> validate_task
+```
