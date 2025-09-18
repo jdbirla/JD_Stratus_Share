@@ -2166,3 +2166,83 @@ with DAG(
     # Task flow: first print, then validate
     print_task >> validate_task
 ```
+```py
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
+from airflow.utils.dates import days_ago
+from datetime import datetime
+import re
+
+# Regex for format like 2025-09-11T05:20:10.229+00:00
+DATETIME_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$"
+)
+
+def validate_params(**context):
+    dag_run_conf = context["dag_run"].conf
+    from_dt = dag_run_conf.get("fromDateTime")
+    to_dt = dag_run_conf.get("toDateTime")
+
+    # 1. Null or empty check
+    if not from_dt or not str(from_dt).strip():
+        raise ValueError("❌ 'fromDateTime' must be provided and cannot be empty")
+    if not to_dt or not str(to_dt).strip():
+        raise ValueError("❌ 'toDateTime' must be provided and cannot be empty")
+
+    # 2. Format check with regex
+    if not DATETIME_PATTERN.match(from_dt):
+        raise ValueError(f"❌ Invalid 'fromDateTime' format: {from_dt}")
+    if not DATETIME_PATTERN.match(to_dt):
+        raise ValueError(f"❌ Invalid 'toDateTime' format: {to_dt}")
+
+    # 3. Convert to datetime and check range
+    try:
+        from_dt_obj = datetime.strptime(from_dt, "%Y-%m-%dT%H:%M:%S.%f%z")
+        to_dt_obj = datetime.strptime(to_dt, "%Y-%m-%dT%H:%M:%S.%f%z")
+    except Exception as e:
+        raise ValueError(f"❌ Date parsing failed: {e}")
+
+    if from_dt_obj > to_dt_obj:
+        raise ValueError("❌ 'fromDateTime' cannot be later than 'toDateTime'")
+
+    days_diff = (to_dt_obj - from_dt_obj).days
+    if days_diff > 7:
+        raise ValueError(f"❌ Date range too large: {days_diff} days (max 7)")
+
+    print(f"✅ Validation passed: {from_dt} → {to_dt} ({days_diff} days)")
+
+
+with DAG(
+    dag_id="validate_and_run_java_dag",
+    start_date=days_ago(1),
+    schedule_interval=None,  # Trigger manually with conf
+    catchup=False,
+    params={
+        "fromDateTime": "",
+        "toDateTime": ""
+    },
+    tags=["validation", "params", "kubernetes"],
+) as dag:
+
+    validate_task = PythonOperator(
+        task_id="validate_params",
+        python_callable=validate_params,
+    )
+
+    run_java_service = KubernetesPodOperator(
+        task_id="run_java_service",
+        name="java-service",
+        namespace="default",
+        image="my-java-service:latest",
+        cmds=["java", "-jar", "app.jar"],
+        arguments=[
+            "--fromDateTime", "{{ dag_run.conf.get('fromDateTime') }}",
+            "--toDateTime", "{{ dag_run.conf.get('toDateTime') }}"
+        ],
+        get_logs=True,
+        is_delete_operator_pod=True,
+    )
+
+    validate_task >> run_java_service
+```
