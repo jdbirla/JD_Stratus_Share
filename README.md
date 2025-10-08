@@ -2246,3 +2246,32 @@ with DAG(
 
     validate_task >> run_java_service
 ```
+
+
+
+---
+## Auth recon sequnce daugram
+
+```mermaid
+sequenceDiagram
+    participant S as Service Layer (VendorService)
+    participant C as VendorApiClient
+    participant T as TokenManager
+    participant A as AuthClient
+    participant V as Vendor API (External)
+
+    S->>C: call getVendorData()
+    C->>T: getAccessToken()
+    alt token not cached or expired
+        T->>A: requestAccessToken(client_id, client_secret)
+        A->>V: POST /auth (grant_type=client_credentials)
+        V-->>A: { access_token, expires_in }
+        A-->>T: return JWT token with expiry
+        T-->>C: store and return new token
+    else token valid
+        T-->>C: return cached token
+    end
+    C->>V: GET /vendor/data\nAuthorization: Bearer <token>
+    V-->>C: response data
+    C-->>S: return response
+```
