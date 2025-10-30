@@ -2399,3 +2399,29 @@ This helps align both systems’ progress visually.
 
 Would you like me to modify this example to include **real overlapping times** (like A1 overlaps with B1 and A2 with B2)?
 That will make it look more like a **parallel timeline comparison**.
+
+
+```mermaid
+gantt
+    dateFormat  YYYY-MM-DD HH:mm
+    axisFormat  %H:%M
+    title       System A vs System B - Hourly Timeline
+    todayMarker off
+
+    section System A 🟢
+    Process A1 :a1, 2025-11-01 00:00, 4h
+    Process A2 :a2, 2025-11-01 04:00, 3h
+    Process A3 :a3, 2025-11-01 08:00, 5h
+
+    section System B 🔵
+    Process B1 :b1, 2025-11-01 01:30, 3h
+    Process B2 :b2, 2025-11-01 04:30, 4h
+    Process B3 :b3, 2025-11-01 09:00, 2h
+
+    %% Define system colors
+    classDef systemA fill:#76b900,stroke:#3a3a3a,stroke-width:1px,color:#fff;
+    classDef systemB fill:#0078d7,stroke:#3a3a3a,stroke-width:1px,color:#fff;
+
+    class a1,a2,a3 systemA
+    class b1,b2,b3 systemB
+```
