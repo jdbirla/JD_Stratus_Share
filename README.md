@@ -2275,3 +2275,127 @@ sequenceDiagram
     V-->>C: response data
     C-->>S: return response
 ```
+
+
+Excellent — you’re trying to represent **a time-based process comparison between two systems**, where:
+
+✅ Tasks run in parallel or overlap
+✅ You want **color distinction per system** (not per phase)
+✅ The chart should maintain **a unified timeline view**
+
+Perfect use case for a **Mermaid Gantt chart** with custom **color definitions** and **sections or classes**.
+
+Let’s go step-by-step 👇
+
+---
+
+## 🧩 Desired Visualization
+
+You want something like this conceptually:
+
+```
+|--------- Timeline (shared across systems) --------|
+System A: |====Process A1====|    |==Process A2==|
+System B:      |====Process B1====|   |===Process B2===|
+```
+
+---
+
+## ✅ Mermaid Gantt Syntax Example
+
+```mermaid
+%%{init: {"themeVariables": {
+    "sectionBkgColor": "#f4f4f4",
+    "sectionBkgColor2": "#e8f0fe",
+    "activeTaskColor": "#76b900",
+    "doneTaskColor": "#6a0dad",
+    "critTaskColor": "#ff6b6b"
+}}}%%
+gantt
+    dateFormat  YYYY-MM-DD
+    title       Parallel Processing Timeline — System A vs System B
+    axisFormat  %d-%b
+
+    section System A 🟢
+    Data Ingestion (A1)    :done,    a1, 2025-10-01, 3d
+    Validation (A2)        :active,  a2, after a1, 4d
+    Transformation (A3)    :         a3, after a2, 5d
+
+    section System B 🔵
+    Data Fetch (B1)        :done,    b1, 2025-10-02, 4d
+    Preprocessing (B2)     :crit,    b2, after b1, 3d
+    Output Generation (B3) :         b3, after b2, 5d
+```
+
+---
+
+### 🧠 Key Ideas
+
+* Both systems share **a single time axis**, so overlapping tasks show parallel execution.
+* Each **section** (System A / System B) is visually separated.
+* You can use:
+
+  * `done` → completed (green)
+  * `active` → in progress (blue)
+  * `crit` → critical (red)
+  * No tag → pending/default (gray)
+* You can further customize color schemes per system with **`classDef`**.
+
+---
+
+## 🎨 Add Custom Colors Per System
+
+If you want **distinct colors per system**, not just per status:
+
+```mermaid
+gantt
+    dateFormat  YYYY-MM-DD
+    title       System A vs System B — Time Overlap
+    axisFormat  %d-%b
+
+    section System A
+    Data Ingestion (A1)    :a1, 2025-10-01, 3d
+    Validation (A2)        :a2, after a1, 4d
+    Transformation (A3)    :a3, after a2, 5d
+
+    section System B
+    Data Fetch (B1)        :b1, 2025-10-02, 4d
+    Preprocessing (B2)     :b2, after b1, 3d
+    Output Generation (B3) :b3, after b2, 5d
+
+    %% Define custom colors for each system
+    classDef systemA fill:#76b900,stroke:#3a3a3a,stroke-width:1px,color:#fff;
+    classDef systemB fill:#0078d7,stroke:#3a3a3a,stroke-width:1px,color:#fff;
+
+    class a1,a2,a3 systemA
+    class b1,b2,b3 systemB
+```
+
+---
+
+## 🔍 Tips for Clear Visuality
+
+| Goal                           | Recommendation                                                      |
+| :----------------------------- | :------------------------------------------------------------------ |
+| **Overlapping visibility**     | Use shared `dateFormat` and clear `after` or explicit dates.        |
+| **Color clarity**              | Define `classDef` for each system (A/B/C…).                         |
+| **Highlight key dependencies** | Use `crit` for shared or blocking processes.                        |
+| **Readable chart**             | Use `axisFormat %d-%b` or `%b %d` for clarity.                      |
+| **Avoid clutter**              | Keep 2–3 systems max per chart; beyond that, use separate sections. |
+
+---
+
+## ⚡ Optional: Add Milestones
+
+You can add checkpoints like this:
+
+```mermaid
+Integration Milestone :milestone, m1, after a3, 1d
+```
+
+This helps align both systems’ progress visually.
+
+---
+
+Would you like me to modify this example to include **real overlapping times** (like A1 overlaps with B1 and A2 with B2)?
+That will make it look more like a **parallel timeline comparison**.
