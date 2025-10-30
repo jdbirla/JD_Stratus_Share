@@ -2403,25 +2403,23 @@ That will make it look more like a **parallel timeline comparison**.
 
 ```mermaid
 gantt
+    title System Processing Timeline
     dateFormat  YYYY-MM-DD HH:mm
     axisFormat  %H:%M
-    title       System A vs System B - Hourly Timeline
-    todayMarker off
 
-    section System A 🟢
-    Process A1 :a1, 2025-11-01 00:00, 4h
-    Process A2 :a2, 2025-11-01 04:00, 3h
-    Process A3 :a3, 2025-11-01 08:00, 5h
+    section System A
+    Load Data A        :done,    a1, 2025-11-01 00:00, 2h
+    Process Records A  :active,  a2, after a1, 3h
+    Store Output A     :         a3, after a2, 1h
 
-    section System B 🔵
-    Process B1 :b1, 2025-11-01 01:30, 3h
-    Process B2 :b2, 2025-11-01 04:30, 4h
-    Process B3 :b3, 2025-11-01 09:00, 2h
+    section System B
+    Fetch Data B       :done,    b1, 2025-11-01 01:00, 2h
+    Analyze B          :active,  b2, after b1, 2h
+    Send Results B     :crit,    b3, after b2, 1h
 
-    %% Define system colors
-    classDef systemA fill:#76b900,stroke:#3a3a3a,stroke-width:1px,color:#fff;
-    classDef systemB fill:#0078d7,stroke:#3a3a3a,stroke-width:1px,color:#fff;
-
-    class a1,a2,a3 systemA
-    class b1,b2,b3 systemB
+    %% Define custom colors for each system
+    classDef systemA fill:#76b900,stroke:#3a3,stroke-width:2px;
+    classDef systemB fill:#1e90ff,stroke:#0050a0,stroke-width:2px;
+    class a1,a2,a3 systemA;
+    class b1,b2,b3 systemB;
 ```
