@@ -2408,18 +2408,13 @@ gantt
     axisFormat  %H:%M
 
     section System A
-    Load Data A        :done,    a1, 2025-11-01 00:00, 2h
-    Process Records A  :active,  a2, after a1, 3h
-    Store Output A     :         a3, after a2, 1h
+    Load Data A        :done,    2025-11-01 00:00, 2h
+    Process Records A  :active,  2025-11-01 02:00, 3h
+    Store Output A     :         2025-11-01 05:00, 1h
 
     section System B
-    Fetch Data B       :done,    b1, 2025-11-01 01:00, 2h
-    Analyze B          :active,  b2, after b1, 2h
-    Send Results B     :crit,    b3, after b2, 1h
+    Fetch Data B       :done,    2025-11-01 01:00, 2h
+    Analyze B          :active,  2025-11-01 03:00, 2h
+    Send Results B     :crit,    2025-11-01 05:00, 1h
 
-    %% Define custom colors for each system
-    classDef systemA fill:#76b900,stroke:#3a3,stroke-width:2px;
-    classDef systemB fill:#1e90ff,stroke:#0050a0,stroke-width:2px;
-    class a1,a2,a3 systemA;
-    class b1,b2,b3 systemB;
 ```
