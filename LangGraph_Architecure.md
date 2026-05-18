@@ -2734,3 +2734,1062 @@ And LangGraph handles this by:
 * letting supervisor take next decisions based on updated state
 
 This is one of the strongest reasons to use LangGraph for enterprise analytics orchestration.
+
+
+---
+
+## new framwork
+
+Yes — **this architecture is much better and much closer to what you actually need.**
+
+This is a clean **Supervisor + conditional routing + worker fanout + reducer** architecture.
+
+I would absolutely choose this over the earlier over-engineered DAG.
+
+Your design is fundamentally sound.
+
+But I would make **3 important corrections** so it works in production.
+
+---
+
+# Your proposed architecture (as I understand)
+
+Flow:
+
+```text
+User question
+   |
+Supervisor Agent
+   |
+   +--> check authorization
+   |
+   +--> understand query type
+          |
+          +--> simple aggregated query
+          |       |
+          |       +--> fetch_alert_worker
+          |               |
+          |               +--> MCP analytics tool
+          |               +--> summarize
+          |               +--> response
+          |
+          +--> complex query
+                  |
+                  +--> query_decomposer
+                          |
+                          +--> split into sub-questions
+                          |
+                          +--> parallel fetch_alert_workers
+                          |
+                          +--> final summarizer
+                          |
+                          +--> response
+```
+
+This is a strong design.
+
+Score:
+
+**9/10**
+
+---
+
+# Why this architecture is good
+
+Because it solves your real problems.
+
+### Fixes context explosion
+
+Instead of:
+
+```text
+huge prompt + huge JSON
+```
+
+you do:
+
+```text
+small query + scoped worker context
+```
+
+Excellent.
+
+---
+
+### Parallel execution
+
+Complex question:
+
+```text
+"3 year trend with root cause analysis"
+```
+
+can become:
+
+```text
+2024
+2025
+2026
+```
+
+parallel workers.
+
+Faster.
+
+---
+
+### Supervisor keeps intelligence centralized
+
+Instead of many agents making random decisions.
+
+Good for governance.
+
+---
+
+### Easier to implement
+
+Compared to giant workflow.
+
+Much better for v1.
+
+---
+
+# 3 critical corrections
+
+## Correction 1: fetch_alert_worker should NOT summarize business insights deeply
+
+You said:
+
+> worker gets data and summarize
+
+Be careful.
+
+If worker does full business summarization:
+
+you may get inconsistent summaries.
+
+Example:
+
+Worker A:
+
+```text
+high alert spike due to suspicious activity
+```
+
+Worker B:
+
+```text
+same pattern appears normal
+```
+
+Conflicting outputs.
+
+Better:
+
+worker produces **structured analytical summary**, not executive narrative.
+
+Example:
+
+Worker output:
+
+```json
+{
+  "period": "2025-Q1",
+  "metrics": {
+    "total_alerts": 14200,
+    "high_severity": 2100,
+    "avg_resolution_time": 4.2
+  },
+  "observations": [
+    "35% increase vs previous quarter",
+    "high severity concentrated in queue X"
+  ]
+}
+```
+
+Final summarizer does business narrative.
+
+Much safer.
+
+---
+
+## Correction 2: query decomposition must be strategy-driven
+
+Do NOT blindly split every complex question.
+
+Example:
+
+Question:
+
+```text
+Compare false positives across queues
+```
+
+Bad split:
+
+```text
+queue1
+queue2
+queue3
+```
+
+Maybe okay.
+
+But question:
+
+```text
+top 10 unresolved alerts
+```
+
+Splitting is unnecessary.
+
+Supervisor should choose decomposition strategy.
+
+Possible strategies:
+
+```text
+NO_SPLIT
+TIME_SPLIT
+QUEUE_SPLIT
+CATEGORY_SPLIT
+EXPORT_PATH
+```
+
+This is important.
+
+---
+
+## Correction 3: authorization MUST be non-bypassable
+
+Supervisor may hallucinate and skip auth.
+
+Do NOT rely only on prompt.
+
+Hard guard:
+
+Before any fetch worker:
+
+backend injects:
+
+```text
+authorized_queue_ids
+```
+
+Worker MCP queries ALWAYS filtered.
+
+Even if LLM forgets.
+
+Example:
+
+Bad:
+
+```json
+{
+  "queue": "ALL"
+}
+```
+
+Backend enforcement:
+
+```json
+{
+  "queue": ["US_SURV","APAC"]
+}
+```
+
+Mandatory.
+
+---
+
+# Recommended architecture (improved)
+
+```text
+┌────────────────────────────┐
+│        USER QUERY          │
+└─────────────┬──────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────┐
+│ SUPERVISOR AGENT                           │
+│--------------------------------------------│
+│ Responsibilities:                          │
+│                                            │
+│ 1. understand query                        │
+│ 2. decide complexity                       │
+│ 3. choose strategy                         │
+│ 4. route work                              │
+└────────────────────────────────────────────┘
+              │
+              ▼
+┌────────────────────────────────────────────┐
+│ ACCESS CONTROL TOOL                        │
+│--------------------------------------------│
+│ get_user_queue_access(email)               │
+└────────────────────────────────────────────┘
+              │
+              ▼
+        Access validated
+              │
+              ▼
+      ┌───────────────┬──────────────────────┐
+      │               │                      │
+      ▼               ▼                      ▼
+
+ SIMPLE          COMPLEX ANALYSIS         EXPORT
+ QUERY             QUERY PATH              PATH
+```
+
+---
+
+# Simple path
+
+```text
+Supervisor
+   |
+   +--> fetch_alert_worker
+            |
+            +--> schema metadata
+            +--> build MCP query
+            +--> analytics MCP
+            +--> small structured result
+            |
+            +--> response formatter
+```
+
+Example:
+
+```text
+Top 5 unresolved alerts
+```
+
+No decomposition.
+
+---
+
+# Complex path
+
+```text
+Supervisor
+   |
+   +--> query_decomposer
+            |
+            +--> create task list
+            |
+            +--> parallel fetch workers
+            |
+            +--> reducer/final summarizer
+            |
+            +--> chart/table builder
+            |
+            +--> final response
+```
+
+---
+
+# Better visual diagram
+
+```text
+                          ┌────────────────────┐
+                          │   USER QUESTION    │
+                          └─────────┬──────────┘
+                                    │
+                                    ▼
+                   ┌────────────────────────────────┐
+                   │        SUPERVISOR AGENT        │
+                   │--------------------------------│
+                   │ - query understanding          │
+                   │ - strategy selection           │
+                   │ - routing                      │
+                   └───────────────┬────────────────┘
+                                   │
+                                   ▼
+                   ┌────────────────────────────────┐
+                   │    ACCESS AUTHORIZATION TOOL   │
+                   │--------------------------------│
+                   │ get_user_queue_access(email)   │
+                   └───────────────┬────────────────┘
+                                   │
+                      unauthorized │ authorized
+                                   │
+                                   ▼
+                      ┌─────────────────────────────┐
+                      │   ROUTING DECISION          │
+                      │-----------------------------│
+                      │ SIMPLE                      │
+                      │ COMPLEX                     │
+                      │ EXPORT                      │
+                      └──────┬──────────┬───────────┘
+                             │          │
+              SIMPLE         │          │ COMPLEX
+                             │          │
+                             ▼          ▼
+
+        ┌──────────────────────┐   ┌──────────────────────┐
+        │ FETCH ALERT WORKER   │   │ QUERY DECOMPOSER     │
+        │----------------------│   │----------------------│
+        │ build MCP args       │   │ split problem        │
+        │ call analytics tool  │   │ into subtasks        │
+        └──────────┬───────────┘   └──────────┬───────────┘
+                   │                          │
+                   │                          ▼
+                   │         ═══ PARALLEL WORKERS ═══
+                   │
+                   │     ┌──────────────────────────┐
+                   │     │ FETCH WORKER 1           │
+                   │     └──────────────────────────┘
+                   │
+                   │     ┌──────────────────────────┐
+                   │     │ FETCH WORKER 2           │
+                   │     └──────────────────────────┘
+                   │
+                   │     ┌──────────────────────────┐
+                   │     │ FETCH WORKER N           │
+                   │     └──────────────────────────┘
+                   │                 │
+                   │                 ▼
+                   │    ┌──────────────────────────┐
+                   │    │ FINAL SUMMARIZER         │
+                   │    │--------------------------│
+                   │    │ consolidate insights     │
+                   │    └────────────┬─────────────┘
+                   │                 │
+                   └─────────────────┴───────────────►
+                                     │
+                                     ▼
+                    ┌────────────────────────────────┐
+                    │ CHART / TABLE RESPONSE BUILDER │
+                    └────────────────────────────────┘
+```
+
+---
+
+# LangGraph nodes (minimal)
+
+This becomes only:
+
+```text
+Supervisor
+AccessTool
+FetchWorker
+QueryDecomposer
+FinalSummarizer
+ChartBuilder
+ExportWorker
+```
+
+Very manageable.
+
+---
+
+# Framework verdict
+
+This architecture makes **LangGraph an excellent fit**.
+
+Because you need:
+
+* supervisor loop
+* branching
+* parallel workers
+* async jobs
+* state management
+
+Exactly LangGraph.
+
+---
+
+My verdict:
+
+**This is the right architecture direction for your project.**
+
+
+---
+
+Yes. Now we are at the right architecture level.
+
+What you want is not just "LangGraph workflow."
+
+You want:
+
+* **Supervisor-driven agentic analytics system**
+* authorization governance
+* MCP analytical tool orchestration
+* optional query decomposition
+* parallel workers
+* human visibility/progress
+* async long-running jobs
+* user approval / interactive checkpoints
+* chart/table generation
+* final executive summary
+
+This is exactly a **Human-in-the-loop Supervisor Agent Architecture in LangGraph**.
+
+This is a strong enterprise design.
+
+---
+
+# 1. Final Architecture Vision
+
+Your system:
+
+```text
+Enterprise Alert Analytics AI Assistant
+```
+
+Capabilities:
+
+✅ user asks generic or specific questions
+✅ respects queue authorization
+✅ chooses best execution strategy
+✅ decides whether decomposition needed
+✅ can ask user before splitting
+✅ runs workers in parallel
+✅ shows live progress in UI
+✅ allows streaming intermediate insights
+✅ generates charts/tables
+✅ final consolidated business summary
+✅ supports async jobs
+
+---
+
+# 2. Final High-Level Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                       FRONTEND CHAT UI                      │
+│--------------------------------------------------------------│
+│ User asks question                                           │
+│                                                              │
+│ Optional preferences:                                        │
+│ - final summary only                                         │
+│ - show progress                                              │
+│ - show partial worker results                                │
+│ - ask before decomposition                                   │
+│                                                              │
+│ UI also renders:                                             │
+│ - progress timeline                                          │
+│ - charts                                                     │
+│ - downloadable tables                                        │
+└──────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│                      CHAT BACKEND API                        │
+│--------------------------------------------------------------│
+│ Injects trusted user identity (SSO)                          │
+│ Starts LangGraph async execution                             │
+│ Streams events to frontend                                   │
+└──────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+════════════════════ LANGGRAPH SUPERVISOR GRAPH ════════════════════
+```
+
+---
+
+# 3. Architecture diagram
+
+```text
+                         ┌──────────────────────┐
+                         │     USER QUESTION    │
+                         └──────────┬───────────┘
+                                    │
+                                    ▼
+                  ┌────────────────────────────────────┐
+                  │       SUPERVISOR AGENT             │
+                  │------------------------------------│
+                  │ Understand question                │
+                  │ Decide strategy                    │
+                  │ Control workflow                   │
+                  └──────────────┬─────────────────────┘
+                                 │
+                                 ▼
+                  ┌────────────────────────────────────┐
+                  │ ACCESS AUTH TOOL                    │
+                  │ get_user_queue_access(email)        │
+                  └──────────────┬─────────────────────┘
+                                 │
+                    unauthorized │ authorized
+                                 │
+                                 ▼
+                  ┌────────────────────────────────────┐
+                  │ QUERY STRATEGY DECISION            │
+                  │------------------------------------│
+                  │ SIMPLE_DIRECT                      │
+                  │ DECOMPOSE                          │
+                  │ EXPORT                             │
+                  │ NEED_USER_CONFIRMATION             │
+                  └───────┬────────────┬──────────────┘
+                          │            │
+                          │            │
+                          ▼            ▼
+
+                SIMPLE PATH        COMPLEX PATH
+```
+
+---
+
+# 4. Complex path
+
+```text
+┌─────────────────────────────────────────────┐
+│ QUERY DECOMPOSER AGENT                      │
+│---------------------------------------------│
+│ Split query intelligently                    │
+│                                             │
+│ Example:                                    │
+│ 2024 analysis                               │
+│ 2025 analysis                               │
+│ 2026 analysis                               │
+└────────────────────┬────────────────────────┘
+                     │
+                     ▼
+
+════════════════ PARALLEL FETCH WORKERS ════════════════
+
+      ┌──────────────────────────────────────┐
+      │ FETCH ALERT WORKER                   │
+      │--------------------------------------│
+      │ Build MCP analytical query           │
+      │ Enforce queue access                 │
+      │ Call alert analytics MCP             │
+      │ Retrieve domain RAG context          │
+      │ Produce structured observations      │
+      └──────────────────────────────────────┘
+
+      ┌──────────────────────────────────────┐
+      │ FETCH ALERT WORKER                   │
+      └──────────────────────────────────────┘
+
+      ┌──────────────────────────────────────┐
+      │ FETCH ALERT WORKER                   │
+      └──────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════
+                     │
+                     ▼
+┌─────────────────────────────────────────────┐
+│ FINAL INSIGHT AGENT                         │
+│---------------------------------------------│
+│ Consolidate worker outputs                  │
+│ Create executive summary                    │
+│ Build trends                                │
+│ Root cause narrative                        │
+└────────────────────┬────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────┐
+│ VISUALIZATION BUILDER                       │
+│---------------------------------------------│
+│ charts JSON                                 │
+│ tables payload                              │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+# 5. LangGraph actual design
+
+Now actual LangGraph.
+
+Use:
+
+### StateGraph
+
+Because you need:
+
+* state persistence
+* branching
+* parallel execution
+* async
+* human checkpoints
+
+---
+
+## State object
+
+```python
+from typing import TypedDict, List, Dict, Optional
+
+class AgentState(TypedDict):
+    session_id: str
+    user_email: str
+    user_query: str
+
+    authorized_queues: List[str]
+
+    execution_mode: str
+    strategy: str
+
+    query_plan: Dict
+    sub_tasks: List[Dict]
+
+    worker_results: List[Dict]
+
+    final_summary: Optional[str]
+
+    charts: List[Dict]
+    tables: List[Dict]
+
+    progress_events: List[Dict]
+
+    user_preferences: Dict
+
+    awaiting_human_input: bool
+    human_response: Optional[str]
+
+    error: Optional[str]
+```
+
+---
+
+# 6. LangGraph nodes
+
+Minimal clean architecture.
+
+---
+
+## Node 1 — Supervisor Agent
+
+Responsibilities:
+
+* understand question
+* decide strategy
+* decide whether decomposition needed
+* decide whether human approval needed
+
+Possible outputs:
+
+```python
+SIMPLE_DIRECT
+DECOMPOSE
+EXPORT
+ASK_CONFIRMATION
+```
+
+Prompt:
+
+```text
+You are supervisor agent for enterprise alert analytics.
+
+Rules:
+1. Authorization always required.
+2. Never bypass queue filtering.
+3. If query is simple aggregated query → SIMPLE_DIRECT.
+4. If query requires large decomposition → DECOMPOSE.
+5. If raw bulk data requested → EXPORT.
+6. If ambiguous high-cost decomposition → ASK_CONFIRMATION.
+```
+
+---
+
+## Node 2 — Access Tool Node
+
+Calls:
+
+```python
+get_user_queue_access(email)
+```
+
+Result:
+
+stored in state.
+
+---
+
+## Node 3 — Human approval node (optional)
+
+Example:
+
+Supervisor decides:
+
+```text
+This query requires splitting into 24 parallel analyses.
+Proceed?
+```
+
+Frontend buttons:
+
+```text
+Proceed
+Final summary only
+Show intermediate results
+Cancel
+```
+
+This is excellent UX.
+
+---
+
+## Node 4 — Query Decomposer
+
+Input:
+
+```text
+Compare yearly alert trend across queues
+```
+
+Output:
+
+```python
+[
+  {"year": 2024},
+  {"year": 2025},
+  {"year": 2026}
+]
+```
+
+OR
+
+```python
+[
+  {"queue": "US"},
+  {"queue": "APAC"}
+]
+```
+
+Strategy aware decomposition.
+
+---
+
+## Node 5 — Fetch Worker
+
+Worker responsibilities:
+
+* build MCP query
+* enforce authorization filters
+* fetch analytics
+* get relevant RAG
+* produce structured summary
+
+Worker output:
+
+```python
+{
+  "task": "2025",
+  "metrics": {...},
+  "observations": [...]
+}
+```
+
+NOT final executive prose.
+
+---
+
+## Node 6 — Final Summarizer
+
+Input:
+
+all worker outputs.
+
+Creates:
+
+* final business summary
+* trends
+* anomalies
+* recommendations
+
+---
+
+## Node 7 — Visualization Builder
+
+Returns:
+
+```python
+{
+  "type": "line",
+  "title": "Monthly Alert Trends",
+  "series": [...]
+}
+```
+
+Frontend renders.
+
+---
+
+## Node 8 — Export Worker
+
+If raw export requested.
+
+No LLM needed.
+
+---
+
+# 7. LangGraph flow
+
+```text
+START
+  |
+AccessTool
+  |
+Supervisor
+  |
+  +------------------------------+
+  |                              |
+  | SIMPLE_DIRECT                |
+  |                              |
+  v                              |
+FetchWorker                      |
+  |                              |
+FinalSummarizer                  |
+  |                              |
+Visualization                    |
+  |                              |
+ END                             |
+                                 |
+                                 |
+                                 | DECOMPOSE
+                                 |
+                                 v
+                        HumanApproval?
+                                 |
+                     yes proceed / modify
+                                 |
+                                 v
+                           QueryDecomposer
+                                 |
+                           Parallel Workers
+                                 |
+                           FinalSummarizer
+                                 |
+                           Visualization
+                                 |
+                                END
+```
+
+---
+
+# 8. Human-in-the-loop progress tracking
+
+This is where LangGraph shines.
+
+Emit progress events:
+
+Example:
+
+```python
+progress_events.append({
+    "step": "authorization",
+    "status": "completed"
+})
+```
+
+Frontend timeline:
+
+```text
+✅ Authorization complete
+✅ Query understood
+⏳ Splitting into 12 tasks
+⏳ Running task 1/12
+⏳ Running task 2/12
+✅ Summarizing results
+✅ Building charts
+```
+
+Very enterprise-friendly.
+
+---
+
+# 9. Streaming partial results
+
+Optional user preference:
+
+```text
+Do you want:
+1. final summary only
+2. show worker insights progressively
+```
+
+Example streaming:
+
+```text
+Worker 1 complete:
+Jan high severity alerts increased 18%
+
+Worker 2 complete:
+Feb stabilized
+```
+
+Then final summary.
+
+Very nice UX.
+
+---
+
+# 10. Recommended improvements
+
+## Add MCP schema metadata tool
+
+Critical.
+
+Tool:
+
+```python
+get_alert_schema_metadata()
+```
+
+Needed for field mapping.
+
+---
+
+## Hard authorization enforcement
+
+Never trust prompt only.
+
+Backend injects queue filters.
+
+Mandatory.
+
+---
+
+## Async job persistence
+
+Store:
+
+```text
+job_id
+state
+progress
+partial results
+```
+
+Redis/Postgres.
+
+---
+
+## Retry logic
+
+If worker fails:
+
+retry specific worker only.
+
+Not full graph.
+
+---
+
+# 11. Final verdict
+
+This architecture is:
+
+**simple enough for implementation**
++
+**powerful enough for enterprise scale**
+
+Compared to giant DAG:
+
+MUCH better.
+
+Compared to uncontrolled pure agent:
+
+MUCH safer.
+
+---
+
+My recommendation:
+
+**LangGraph Supervisor + Human-in-loop + Parallel Worker Architecture**
+
+This is the architecture I would build for your use case.
+
+---
+
+Next step I can give you **actual LangGraph Python implementation skeleton (StateGraph + nodes + supervisor routing + parallel Send API + human approval integration).**
