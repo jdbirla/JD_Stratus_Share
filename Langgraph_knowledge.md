@@ -8,7 +8,8 @@
 best fit exmaple:
 - fastapi-langgraph-chatbot-with-vector-store-memory-mcp-tools-and-voice-mode
   - https://github.com/extrawest/fastapi-langgraph-chatbot-with-vector-store-memory-mcp-tools-and-voice-mode
-
+## code basics
+- https://in.investing.com/indices/bank-nifty-historical-data
 ---
 ## Design Knowledge
 <img width="722" height="846" alt="image" src="https://github.com/user-attachments/assets/2e1a9c81-b802-405b-a8bb-d178bd164311" />
