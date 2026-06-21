@@ -1,5 +1,8 @@
 # SSO understanding for redirect and react to BFF to Entra id
 
+<img width="1536" height="1024" alt="ChatGPT Image Jun 21, 2026, 12_08_31 PM" src="https://github.com/user-attachments/assets/82786cbf-699c-410c-832c-53ba6f537d19" />
+
+
 The confusion comes from thinking that **the browser needs to identify itself to Entra ID**.
 
 It doesn't.
