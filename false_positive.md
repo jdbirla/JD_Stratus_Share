@@ -1,91 +1,114 @@
 # False Positive Detection
 
-Yes. I finalized the architecture based on our discussion and created a **GitHub-ready design package**.
+Absolutely. I’ve expanded it into a **complete architecture/design document**, not just the high-level diagram.
 
-### What I included
+### What is included
+
+The package now contains:
 
 ```text
-false-positive-detection-design/
+false-positive-detection-design-v2/
+│
 ├── README.md
-├── GITHUB_COMMIT_GUIDE.md
-└── diagrams/
-    ├── architecture.mmd
-    ├── sequence.mmd
-    ├── duplicate-detection.mmd
-    └── context-extraction.mmd
+│
+├── docs/
+│   └── implementation-blueprint.md
+│
+├── diagrams/
+│   ├── 01-end-to-end.mmd
+│   ├── 02-duplicate-detection.mmd
+│   ├── 03-context-extraction.mmd
+│   ├── 04-batching.mmd
+│   ├── 05-llm-sequence.mmd
+│   ├── 06-human-feedback.mmd
+│   └── 07-deployment.mmd
+│
+└── GITHUB_COMMIT_GUIDE.md
 ```
 
-The design specifically reflects the approach we agreed on:
+The `README.md` now covers the complete flow:
 
-* ~1M alerts/day
-* Maximum ~50 policies
-* Channel-independent classification while retaining channel metadata
-* Exact duplicate detection
-* Template/near-duplicate detection
-* **No embeddings/vector DB in the initial architecture**
-* Alert-context extraction
-* Policy-based token-aware batching
-* LLM classification
-* `TRUE_POSITIVE / FALSE_POSITIVE / UNCERTAIN`
-* Human review for uncertain cases
-* Auditability and metrics
-* Future evolution based on actual production measurements
+1. Existing surveillance alert ingestion
+2. Alert normalization
+3. Policy grouping
+4. Exact duplicate detection
+5. Template/near-duplicate detection
+6. Representative message selection
+7. Alert-context extraction
+8. Policy context management
+9. Token-aware LLM batching
+10. LLM Gateway
+11. Policy-aware LLM prompt
+12. Structured JSON response
+13. Response validation
+14. Decision routing
+15. Human review
+16. Duplicate result propagation
+17. Database design
+18. Asynchronous processing
+19. Python project structure
+20. Failure/retry handling
+21. Security considerations
+22. Monitoring and metrics
+23. Human feedback loop
+24. Future optimization
 
-### Main architecture
+I've also included the **actual Mermaid source** for all the important diagrams, so you can commit the `.mmd` files directly to GitHub.
 
-```text
-Communication Sources
- Outlook / Webex / Bloomberg / Other
-                 │
-                 ▼
-       Existing Surveillance
-       Policies + Rules + Keywords
-                 │
-                 ▼
-        Alert Normalization
-                 │
-                 ▼
-          Group by Policy
-                 │
-                 ▼
-       Exact Duplicate Check
-                 │
-                 ▼
-    Template / Near-Duplicate Check
-                 │
-                 ▼
-       Representative Alerts
-                 │
-                 ▼
-       Context Extraction
-                 │
-                 ▼
-       Token-Aware Batching
-                 │
-                 ▼
-        Policy-Aware LLM
-                 │
-                 ▼
-     TP / FP / UNCERTAIN
-                 │
-        ┌────────┼────────┐
-        ▼        ▼        ▼
-       FP       TP    Uncertain
-        │        │        │
-        │        │        ▼
-        │        │   Human Review
-        └────────┴────────┘
-                 │
-                 ▼
-          Results / Audit DB
+### Download
+
+[Download the complete GitHub-ready design package](sandbox:/mnt/data/false-positive-detection-design-v2.zip)
+
+### The main architecture is now
+
+```mermaid
+flowchart TB
+    A["Communication Sources<br/>Outlook / Webex / Bloomberg / Other"]
+    B["Existing Surveillance Engine<br/>Policies + Rules + Keywords"]
+    C["Alert Ingestion"]
+    D["Alert Normalization"]
+    E["Group by Policy"]
+    F["Exact Duplicate Detection"]
+    G["Template / Near-Duplicate Detection"]
+    H["Representative Alert Selection"]
+    I["Context Extraction"]
+    J["Token & Context Optimization"]
+    K["Token-Aware Batch Manager"]
+    L["LLM Gateway"]
+    M["Policy-Aware LLM"]
+    N["Structured Result Validation"]
+    O["Decision Service"]
+
+    A --> B --> C --> D --> E --> F --> G --> H --> I --> J --> K --> L --> M --> N --> O
+
+    O --> P["High Confidence FP Recommendation"]
+    O --> Q["High Confidence TP Priority Review"]
+    O --> R["Uncertain / Low Confidence Human Review"]
+
+    R --> S["Business Review"]
+    S --> T["Human Decision"]
+
+    P --> U["Results + Audit DB"]
+    Q --> U
+    T --> U
+
+    U --> V["Metrics / Monitoring"]
+    V -.-> W["Improve Prompts / Rules / Thresholds"]
 ```
 
-### Download the package
+### One important architectural decision
 
-[Download the GitHub-ready design package](sandbox:/mnt/data/false-positive-detection-design)
+I have intentionally finalized this **without embeddings/vector DB**.
 
-You can extract it and commit the contents directly to your repository. The `.mmd` files are **Mermaid diagrams**, which GitHub can render natively.
+The initial solution is:
 
-The `README.md` is also written as the initial architecture/design document, so you can use it directly as your project documentation.
+**cheap deterministic processing → reduce duplicates → extract relevant context → batch → LLM semantic classification → human review**
 
-**Next, I would recommend turning this into the actual technical design**: database tables + Python package structure + duplicate-detection algorithms + context-extraction implementation + LLM batch/prompt schema. That would give you a solid HLD → LLD path rather than just an architecture diagram.
+rather than:
+
+**embeddings → vector search → clustering → LLM**
+
+I think this is the cleaner architecture for your current requirements, and the document explicitly explains why.
+
+The next natural step would be to turn this HLD into an **LLD**, including the actual PostgreSQL schema, Python classes/interfaces, duplicate-detection implementation, context extraction algorithm, batch manager algorithm, and the exact LLM prompt/JSON schema.
+
